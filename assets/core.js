@@ -86,14 +86,22 @@
       return t;
     },
     path: function (job) { return job.kind === 'undo' ? '/till/undo' : '/till/sale'; },
-    body: function (job) {
+    // sentAt = the phone's (corrected) clock as it sends: with `at`, the server can tell a phone clock that is off
+    body: function (job, sentAt) {
       if (job.kind === 'undo') return { id: job.id };
-      return { id: job.id, till: job.till, n: job.n, at: job.at, q: job.q, prize: job.prize || null, undone: !!job.undone };
+      var b = { id: job.id, till: job.till, n: job.n, at: job.at, q: job.q, prize: job.prize || null, undone: !!job.undone };
+      if (typeof sentAt === 'number') b.sentAt = sentAt;
+      return b;
     },
-    // saved: the job goes; but a sale undone while it was on its way comes back as an undo (the server keeps a sale's first answer)
-    settle: function (queue, job, sent) {
+    // saved: settled on the server's answer (`undone`), never on what was sent. Undo asked and refused → stays sold, in red;
+    // Undo tapped while the sale was on its way → asked now (POST /till/undo).
+    settle: function (queue, job, sent, reply) {
       job.inflight = false;
-      if (job.kind === 'sale' && job.undone && sent && !sent.undone) { job.kind = 'undo'; job.tries = 0; job.nextAt = 0; return; }
+      if (job.kind === 'sale' && job.undone) {
+        var got = reply && typeof reply.undone === 'boolean' ? reply.undone : !!(sent && sent.undone);
+        if (!got && sent && sent.undone) { job.kind = 'undo'; Q.fail(queue, job, { status: 409, error: 'too-late' }); return; }
+        if (!got) { job.kind = 'undo'; job.tries = 0; job.nextAt = 0; return; }
+      }
       drop(queue, job);
     },
     backoff: function (tries) { return Math.min(60000, 1000 * Math.pow(2, Math.max(1, tries))); },
@@ -103,7 +111,7 @@
     classify: function (res) {
       if (res.ok) return 'ok';
       if (res.net) return 'retry';
-      if (res.status === 401 || res.status === 403 || res.error === 'login') return 'login';
+      if (res.status === 401 || res.error === 'login') return 'login';   // (a 403 "origin" is a wrong site: no PIN fixes it)
       if (!res.status || res.status >= 500 || res.status === 429 || res.status === 408) return 'retry';
       return 'fail';
     },
@@ -122,10 +130,21 @@
     if (!w) return { text: '● All saved', cls: 'ok' };
     return offline ? { text: 'Offline · ' + w + ' waiting', cls: 'warn' } : { text: w + ' waiting to send', cls: 'warn' };
   }
+  // the red line: sales the server refused, and undos it refused (the sale then stays sold: too late, or an owner corrected it)
   function failLine(queue) {
-    var f = Q.failed(queue);
-    if (!f.length) return '';
-    return f.length + ' not saved — tell an owner (' + f.map(function (j) { return R.code(j.till, j.n) + ' · ' + j.err.error; }).join(', ') + ')';
+    var f = Q.failed(queue), sold = f.filter(function (j) { return j.kind !== 'undo'; }), und = f.filter(function (j) { return j.kind === 'undo'; }), out = [];
+    if (sold.length) out.push(sold.length + ' not saved — tell an owner (' + sold.map(function (j) { return R.code(j.till, j.n) + ' · ' + j.err.error; }).join(', ') + ')');
+    if (und.length) {
+      var odd = und.filter(function (j) { return j.err.error !== 'too-late'; }).map(function (j) { return j.err.error; });
+      out.push('Too late to undo ' + und.map(function (j) { return R.code(j.till, j.n); }).join(', ') + ' — tell an owner' + (odd.length ? ' (' + odd.join(', ') + ')' : ''));
+    }
+    return out.join(' · ');
+  }
+  // every server answer carries its clock (ms): server − phone, used only when the phone is more than 5 minutes off; null = no clock
+  function clockOffset(serverNow, sentAt, gotAt) {
+    if (typeof serverNow !== 'number' || !isFinite(serverNow)) return null;
+    var off = serverNow - (sentAt + gotAt) / 2;
+    return Math.abs(off) > 300000 ? Math.round(off) : 0;
   }
 
   // ---------- time words (Singapore, whatever the phone's zone) ----------
@@ -143,6 +162,6 @@
 
   root.TillCore = {
     API: API, pickApi: pickApi, nextN: nextN, uid: uid, parseCents: parseCents, parseCode: parseCode, findOrders: findOrders,
-    Q: Q, pill: pill, failLine: failLine, hm: hm, dayWords: dayWords, when: when, ymd: ymd, esc: esc
+    Q: Q, pill: pill, failLine: failLine, clockOffset: clockOffset, hm: hm, dayWords: dayWords, when: when, ymd: ymd, esc: esc
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

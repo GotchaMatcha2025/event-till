@@ -26,8 +26,18 @@
   };
   for (var i = 0; i < S.queue.length; i++) S.queue[i].inflight = false;
   function now() { return Date.now() + S.offset; }
+  // every answer carries the server's clock: a phone more than 5 min off uses it (QR expiry, sale times, the day on screen)
+  function learnClock(res, t0) {
+    var off = C.clockOffset(res && res.data ? res.data.now : null, t0, Date.now());
+    if (off === null || off === S.offset) return;
+    S.offset = off; put('offset', off);
+    if (S.screen === 'sell') renderSell();
+  }
   function today() { return R.sgtDate(now()); }
   function tokenOk() { return !!(S.auth && S.auth.token && S.auth.letter === S.letter && S.auth.date === today()); }
+  function setAuth(d) {
+    S.auth = { token: d.token, letter: d.letter, date: d.date || today() }; put('auth', S.auth);
+  }
   function saveOrder() { put('order', { q: S.q, prize: S.prize }); }
   function saveQueue() { put('queue', S.queue.map(function (j) { var c = {}; for (var k in j) if (k !== 'inflight') c[k] = j[k]; return c; })); }
   function nextN() { return C.nextN(S.counter && S.counter.letter === S.letter ? S.counter.n : 0, 0, S.queue, S.letter); }
@@ -37,15 +47,17 @@
   function show(name) {
     S.screen = name;
     for (var i = 0; i < SCREENS.length; i++) $('s-' + SCREENS[i]).hidden = SCREENS[i] !== name;
-    closeSheet();
+    closeSheet(); untoast();
     if (name === 'sell') renderSell();
     if (name === 'qr') renderQR();
     if (name === 'paid') renderPaid();
     if (name === 'pin') { S.pin = ''; renderPin(); }
   }
   function toast(msg) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { t.hidden = true; }, 2400); }
+  function untoast() { clearTimeout(toast.t); $('toast').hidden = true; }   // a hint never follows to the next screen or sheet (it covered Hold: Paid)
   function closeSheet() { $('sheet').innerHTML = ''; }
   function sheet(html) {
+    if (!$('sheet').firstChild) untoast();
     $('sheet').innerHTML = '<div class="sheetwrap" id="sw"><div class="sheet" role="dialog" aria-modal="true">' + html + '</div></div>';
     $('sw').addEventListener('click', function (e) { if (e.target.id === 'sw') closeSheet(); });
   }
@@ -115,7 +127,7 @@
   $('clear').onclick = function () { S.q = {}; S.prize = null; saveOrder(); renderSell(); };
   $('toQR').onclick = function () { if (cur().total <= 0) { toast('Add a drink first'); return; } show('qr'); };
   $('pill').onclick = function () {
-    if (!tokenOk()) { show('pin'); return; }
+    if (!tokenOk()) { if (S.auth && S.auth.token && !renewing) { renew(); toast('Checking…'); } else show('pin'); return; }
     S.offline = false; for (var i = 0; i < S.queue.length; i++) S.queue[i].nextAt = 0;   // signal back? send now
     flush(); status();
   };
@@ -189,12 +201,32 @@
     flush();
   };
 
+  // ---------- a new day (SGT midnight) or a 401: today's token from yesterday's, no PIN; the PIN only if that is refused ----------
+  var renewing = false, renewT = null;
+  function renew() {
+    if (renewing || !S.letter || !S.auth || !S.auth.token) return;
+    renewing = true; clearTimeout(renewT);
+    var t0 = Date.now();
+    A.call('POST', '/till/join', { letter: S.letter, renew: S.auth.token }, null, 15000).then(function (res) {
+      renewing = false; learnClock(res, t0);
+      var d = res.data || {};
+      if (res.ok && d.token && d.letter === S.letter) {
+        setAuth(d); S.renewedAt = Date.now(); S.offline = false;
+        if (S.counter && S.counter.letter === d.letter && +d.lastN > S.counter.n) { S.counter.n = +d.lastN; put('counter', S.counter); }
+        status(); flush(); hello(); return;   // the queue goes now: nothing waits for a morning PIN
+      }
+      if (C.Q.classify(res) === 'retry') { S.offline = !!res.net; status(); renewT = setTimeout(renew, 15000); return; }
+      S.auth = null; del('auth'); status();   // refused: this phone needs the booth PIN
+      if (S.screen === 'sell' && !S.paid && !Object.keys(S.q).length) show('pin');
+    });
+  }
+
   // ---------- sending: one job at a time, retried with backoff until saved; a refusal stays visible ----------
   var flushing = false, wakeT = null, sentSome = false;
   function flush() {
     if (flushing) return;
     clearTimeout(wakeT);
-    if (!tokenOk()) { status(); return; }
+    if (!tokenOk()) { renew(); status(); return; }
     C.Q.foreign(S.queue, S.letter).forEach(function (j) { C.Q.fail(S.queue, j, { status: 0, error: 'other-till' }); });
     var job = C.Q.ready(S.queue, Date.now(), S.letter);
     if (!job) {
@@ -204,13 +236,14 @@
       saveQueue(); status(); return;
     }
     flushing = true; job.inflight = true;
-    var body = C.Q.body(job);
+    var body = C.Q.body(job, now()), t0 = Date.now();
     A.call('POST', C.Q.path(job), body, S.auth.token, 15000).then(function (res) {
-      flushing = false;
+      flushing = false; learnClock(res, t0);
       var k = C.Q.classify(res);
-      if (k === 'ok') { S.offline = false; sentSome = true; C.Q.settle(S.queue, job, body); }
+      if (k === 'ok') { S.offline = false; sentSome = true; C.Q.settle(S.queue, job, body, res.data); }
       else if (k === 'retry') { S.offline = !!res.net; C.Q.retry(S.queue, job, Date.now()); }
-      else if (k === 'login') { job.inflight = false; S.auth = null; del('auth'); }   // a new day or a new key: the PIN again; sales wait on the phone
+      else if (k === 'login' && job.loginAt && (S.renewedAt || 0) > job.loginAt) C.Q.fail(S.queue, job, res);   // refused again with a newer token: show it, no loop
+      else if (k === 'login') { job.inflight = false; job.loginAt = Date.now(); if (S.auth) S.auth.date = ''; renew(); }   // a new day or a new key: renew; sales wait on the phone
       else { S.offline = false; C.Q.fail(S.queue, job, res); }
       saveQueue(); status();
       if (k === 'ok' || k === 'fail') flush();
@@ -219,15 +252,13 @@
   }
   // "I'm here, n waiting" every 60 s while open; its clock answer fixes a phone clock that is far off (QR expiry, sale times)
   function hello() {
-    if (!tokenOk() || document.hidden) return;
+    if (document.hidden) return;
+    if (!tokenOk()) { renew(); return; }   // past SGT midnight: today's token first
     var t0 = Date.now();
     A.call('POST', '/till/hello', { waiting: C.Q.waiting(S.queue) }, S.auth.token, 10000).then(function (res) {
-      if (res.ok && res.data && typeof res.data.now === 'number') {
-        var off = res.data.now - (t0 + Date.now()) / 2;
-        S.offset = Math.abs(off) > 300000 ? Math.round(off) : 0; put('offset', S.offset);
-        S.offline = false;
-        if (S.screen === 'sell') renderSell();
-      } else if (C.Q.classify(res) === 'login') { S.auth = null; del('auth'); }
+      learnClock(res, t0);
+      if (res.ok) S.offline = false;
+      else if (C.Q.classify(res) === 'login') { if (S.auth) S.auth.date = ''; renew(); }
       else if (res.net) S.offline = true;
       status();
     });
@@ -269,19 +300,20 @@
     var pin = S.pin, body = { pin: pin };
     if (S.letter) body.letter = S.letter;
     S.busy = true; renderPin();
+    var t0 = Date.now();
     A.call('POST', '/till/join', body, null, 15000).then(function (res) {
-      S.busy = false; S.pin = '';
+      S.busy = false; S.pin = ''; learnClock(res, t0);
       var d = res.data || {};
       if (!res.ok || !d.token || !/^[A-Z]$/.test(d.letter || '')) {
-        S.pinNet = !!res.net;
+        S.pinNet = !!res.net || res.status === 429;   // no signal, or locked out for a while: sell now, the sales wait on the phone
         $('pinerr').textContent = res.ok ? 'Something went wrong. Try again.' : A.words(res);
         renderPin(); return;
       }
       if (d.letter !== S.letter) S.counter = { letter: d.letter, n: 0 };   // a new till letter starts its own numbers
       S.letter = d.letter; S.pinNet = false;
       S.counter = { letter: d.letter, n: Math.max(S.counter && S.counter.letter === d.letter ? S.counter.n : 0, +d.lastN || 0) };
-      S.auth = { token: d.token, letter: d.letter, date: d.date || today() };
-      put('letter', S.letter); put('auth', S.auth); put('counter', S.counter);
+      setAuth(d); S.renewedAt = Date.now();
+      put('letter', S.letter); put('counter', S.counter);
       show(S.paid ? 'paid' : 'sell');
       flush(); hello();
     });
@@ -307,8 +339,7 @@
   // ---------- start ----------
   A.stripe();
   A.offlineShell('sw.js');
-  if (!S.letter) show('pin');
-  else if (!tokenOk()) show('pin');
-  else show(S.paid ? 'paid' : 'sell');
+  if (!S.letter || !S.auth || !S.auth.token) show('pin');   // first open, or a renewal was refused
+  else show(S.paid ? 'paid' : 'sell');                      // an old token renews itself (flush → renew)
   flush(); hello();
 })();

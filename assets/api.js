@@ -12,17 +12,19 @@
   var WORDS = {
     'bad-pin': 'Wrong PIN.', busy: 'Too many wrong PINs. Wait 15 minutes.', login: 'Log in again.',
     clash: 'Number clash — tell an owner.', 'below-zero': 'That day would go below S$0.', closed: 'Till server not set up.',
-    adjusted: 'Undo its adjustment first.', voided: 'Already voided.', undone: 'Undone at the till.', 'too-late': 'Too late to undo — tell an owner.',
-    full: 'No till letters left — tell an owner.', 'not-found': 'No such order.'
+    adjusted: 'Undo its adjustment first.', voided: 'Already voided.', undone: 'Already undone.', 'too-late': 'Too late to undo — tell an owner.',
+    full: 'No till letters left — tell an owner.', 'not-found': 'Not found.', test: 'A test sale: never counted.', 'not-voided': 'Not voided.',
+    number: 'Order number too high — tell an owner.', 'req-reused': 'Something went wrong. Try again.', slow: 'Too many tries. Wait a few minutes.'
   };
+  var OWN_WORDS = { price: 1, cap: 1, busy: 1, slow: 1, number: 1, 'req-reused': 1 };   // the server's message says it best (e.g. the minutes left)
   function words(res) {
     if (!res || res.ok) return '';
     if (res.net) return 'No signal. Try again.';
-    if ((res.error === 'price' || res.error === 'cap') && res.message) return res.message;
+    if (OWN_WORDS[res.error] && res.message) return res.message;
     if (WORDS[res.error]) return WORDS[res.error];
+    if (res.message) return res.message;   // e.g. 503 try-again: "Something went wrong. Try again."
     if (res.status === 503) return WORDS.closed;
-    if (res.status === 404) return WORDS['not-found'];
-    return res.message || 'Something went wrong (' + (res.error || res.status) + ').';
+    return 'Something went wrong (' + (res.error || res.status) + ').';
   }
 
   // → always resolves {ok, status, error, message, data, net}; never throws. A timeout aborts and counts as no signal.

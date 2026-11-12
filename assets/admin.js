@@ -34,9 +34,11 @@
     return a.join(', ') + (o.prize ? ' · ' + (R.prize(o.prize) ? R.prize(o.prize).label : o.prize) : '');
   }
   function toast(msg) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { t.hidden = true; }, 2400); }
+  function untoast() { clearTimeout(toast.t); $('toast').hidden = true; }   // a hint never follows to the next screen or sheet (it covered Hold: Paid)
   function note(text, bad) { var n = $('adnote'); n.textContent = text || ''; n.className = bad ? 'err adnote' : 'count adnote'; }
   function closeSheet() { $('sheet').innerHTML = ''; S.sheet = null; }
   function sheet(html) {
+    if (!$('sheet').firstChild) untoast();
     $('sheet').innerHTML = '<div class="sheetwrap" id="sw"><div class="sheet" role="dialog" aria-modal="true">' + html + '</div></div>';
     $('sw').addEventListener('click', function (e) {   // a tap outside = Cancel (and a fresh look if a save was left unsure)
       if (e.target.id !== 'sw' || (S.sheet && S.sheet.busy)) return;
@@ -48,7 +50,7 @@
   function show(name) {
     S.screen = name;
     $('s-pin').hidden = name !== 'pin'; $('s-admin').hidden = name !== 'admin';
-    closeSheet();
+    closeSheet(); untoast();
     if (name === 'pin') { S.pin = ''; renderPin(); }
     if (name === 'admin') { render(); load(); }
   }
@@ -82,6 +84,18 @@
       show('admin');
     });
   }
+  // the owner token is good for one SGT day: past midnight (a 401) the open tab renews it with itself, no PIN; refused → the PIN
+  var renewing = null;
+  function renewAuth(cb) {
+    if (!S.auth || !S.auth.token) { cb(false); return; }
+    if (renewing) { renewing.push(cb); return; }
+    renewing = [cb];
+    A.call('POST', '/admin/login', { renew: S.auth.token }, null, 15000).then(function (res) {
+      var d = res.data || {}, ok = res.ok && !!d.token, cbs = renewing; renewing = null;
+      if (ok) { S.auth = { token: d.token, name: d.name || S.auth.name }; ssSet(S.auth); }
+      for (var i = 0; i < cbs.length; i++) cbs[i](ok, res);
+    });
+  }
   function lock(msg) {
     S.auth = null; ssSet(null); S.st = null; S.all = null;
     show('pin'); if (msg) $('pinerr').textContent = msg;
@@ -89,14 +103,17 @@
   $('lock').onclick = function () { lock(''); };
 
   // ---------- state: everything Admin draws, from the server ----------
-  function load(keep, then) {
+  function load(keep, then, again) {
     if (!S.auth) return;
     var f = S.filter, mine = ++S.loading;
     if (!S.st) note('Loading…');
     A.call('GET', '/admin/state?day=' + encodeURIComponent(f), null, S.auth.token, 20000).then(function (res) {
       if (mine !== S.loading) return;   // a later tap wins
       if (!res.ok) {
-        if (C.Q.classify(res) === 'login') { lock('Log in again.'); return; }
+        if (C.Q.classify(res) === 'login') {
+          if (again) { lock('Log in again.'); return; }
+          renewAuth(function (ok) { if (ok) load(keep, then, true); else lock('Log in again.'); }); return;
+        }
         note((S.st ? 'Not up to date. ' : '') + A.words(res), true); return;
       }
       S.st = res.data; if (f === 'all') S.all = res.data;
@@ -262,13 +279,17 @@
 
   // ---------- writes: a fresh request id per correction, the same id on a retry; the server decides; then fresh state ----------
   // ss = the open sheet's state {req, busy, unsure, err}; redraw = draw the sheet again
-  function write(path, body, ss, okMsg, redraw) {
+  function write(path, body, ss, okMsg, redraw, again) {
     if (!ss.req) ss.req = C.uid();
     body.req = ss.req; ss.busy = true; ss.err = ''; redraw();
     A.call('POST', path, body, S.auth.token, 20000).then(function (res) {
       ss.busy = false;
       if (res.ok) { closeSheet(); toast(okMsg); S.all = S.filter === 'all' ? S.all : null; load('keep'); return; }
       var k = C.Q.classify(res);
+      if (k === 'login' && !again) {   // past midnight: renew, then the same request again (same id: it saves once)
+        ss.busy = true; redraw();
+        renewAuth(function (ok) { ss.busy = false; if (ok) write(path, body, ss, okMsg, redraw, true); else lock('Log in again.'); }); return;
+      }
       if (k === 'login') { lock('Log in again.'); return; }
       if (k === 'retry') { ss.unsure = true; ss.err = res.net ? 'No answer. Saved? Try again (it won\'t save twice).' : A.words(res); redraw(); return; }
       ss.req = null; ss.unsure = false;   // the server said no: a new try is a new request

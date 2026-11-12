@@ -99,13 +99,27 @@ test('queue: add, ready in order, body and path of each kind', () => {
   assert.equal(j.id, 's1');
   assert.equal(C.Q.path(j), '/till/sale');
   assert.deepEqual(plain(C.Q.body(j)), { id: 's1', till: 'A', n: 1, at: 1001, q: { ml: 1 }, prize: null, undone: false });
+  assert.equal(C.Q.body(j, 5000).sentAt, 5000);            // the phone's (corrected) clock when it was sent, beside `at`
   assert.equal(C.Q.path({ kind: 'undo', id: 's1' }), '/till/undo');
   assert.deepEqual(plain(C.Q.body({ kind: 'undo', id: 's1', till: 'A', n: 1 })), { id: 's1' });
 });
 test('queue: a saved sale leaves the queue', () => {
   const q = [sale('s1', 1), sale('s2', 2)];
-  C.Q.settle(q, q[0], C.Q.body(q[0]));
+  C.Q.settle(q, q[0], C.Q.body(q[0]), { code: 'A-001', saved: true, undone: false });
   assert.deepEqual(q.map((j) => j.id), ['s2']);
+});
+test('queue: settled on the reply\'s undone — an undo the server refused keeps the sale as sold, in red', () => {
+  const q = [sale('s1', 1, { undone: true })];
+  C.Q.settle(q, q[0], C.Q.body(q[0]), { code: 'A-001', saved: true, undone: false });   // asked undone, the server said no
+  assert.equal(q.length, 1);
+  assert.equal(C.failLine(q), 'Too late to undo A-001 — tell an owner');
+  assert.equal(C.Q.waiting(q), 0);                         // never sent again
+  const q2 = [sale('s2', 2, { undone: true })];
+  C.Q.settle(q2, q2[0], C.Q.body(q2[0]), { code: 'A-002', saved: true, undone: true });
+  assert.equal(q2.length, 0);                              // the undo stood
+  const q3 = [sale('s3', 3, { undone: true })];
+  C.Q.settle(q3, q3[0], C.Q.body(q3[0]), { code: 'A-003', saved: true });   // an answer without `undone`: what was sent
+  assert.equal(q3.length, 0);
 });
 test('queue: a network error retries with backoff (2 s, 4 s … at most 60 s); nothing is lost', () => {
   const q = [sale('s1', 1)];
@@ -128,6 +142,9 @@ test('queue: classify — 5xx, 429 and timeouts retry; 401 asks for the PIN; oth
   assert.equal(C.Q.classify({ ok: false, status: 0, net: true, error: 'timeout' }), 'retry');
   assert.equal(C.Q.classify({ ok: false, status: 401, error: 'login' }), 'login');
   assert.equal(C.Q.classify({ ok: false, status: 403, error: 'login' }), 'login');
+  assert.equal(C.Q.classify({ ok: false, status: 403, error: 'origin' }), 'fail');   // a page on a site the server doesn't allow: no PIN fixes that
+  assert.equal(C.Q.classify({ ok: false, status: 503, error: 'try-again' }), 'retry');
+  assert.equal(C.Q.classify({ ok: false, status: 404, error: 'not-found' }), 'fail');
   assert.equal(C.Q.classify({ ok: false, status: 409, error: 'clash' }), 'fail');
   assert.equal(C.Q.classify({ ok: false, status: 422, error: 'price' }), 'fail');
   assert.equal(C.Q.classify({ ok: false, status: 409, error: 'too-late' }), 'fail');
@@ -149,6 +166,21 @@ test('queue: undo of a sale still queued marks it undone (sent once, as undone)'
   assert.equal(q.length, 1);
   assert.equal(C.Q.body(q[0]).undone, true);
 });
+test('queue: a refused undo (too late, an owner corrected it) keeps the sale as sold and says so', () => {
+  const q = [];
+  C.Q.undo(q, { id: 's9', till: 'A', n: 9 });
+  C.Q.fail(q, q[0], { status: 409, error: 'too-late', message: 'Too late to undo. Tell an owner.' });
+  assert.equal(C.failLine(q), 'Too late to undo A-009 — tell an owner');
+  C.Q.add(q, sale('s10', 10)); C.Q.fail(q, q[1], { status: 409, error: 'clash' });
+  assert.equal(C.failLine(q), '1 not saved — tell an owner (A-010 · clash) · Too late to undo A-009 — tell an owner');
+  const q2 = []; C.Q.undo(q2, { id: 's8', till: 'A', n: 8 }); C.Q.fail(q2, q2[0], { status: 404, error: 'not-found' });
+  assert.equal(C.failLine(q2), 'Too late to undo A-008 — tell an owner (not-found)');
+});
+test('clockOffset: the server\'s clock is used only when the phone is more than 5 minutes off', () => {
+  assert.equal(C.clockOffset(1000000, 999000, 999400), 0);                // 0.8 s: the phone is right
+  assert.equal(C.clockOffset(1000000 + 3600000, 1000000, 1000200), 3599900);   // the phone is an hour slow
+  assert.equal(C.clockOffset(undefined, 1, 2), null);                     // no clock in the answer: keep what we had
+});
 test('queue: undo of a sale already sent queues POST /till/undo (retried like a sale)', () => {
   const q = [];
   assert.equal(C.Q.undo(q, { id: 's1', till: 'A', n: 7 }), 'undo');
@@ -164,7 +196,7 @@ test('queue: undo while the sale is on its way — the reply turns it into an un
   q[0].inflight = true;
   assert.equal(C.Q.ready(q, 0, 'A'), null);                // never sent twice at once
   C.Q.undo(q, { id: 's1', till: 'A', n: 1 });               // … then Undo is tapped before the answer
-  C.Q.settle(q, q[0], sent);                                // the answer: saved (as a sale)
+  C.Q.settle(q, q[0], sent, { code: 'A-001', saved: true, undone: false });   // the answer: saved (as a sale)
   assert.equal(q.length, 1);
   assert.equal(q[0].kind, 'undo');
   assert.equal(C.Q.path(q[0]), '/till/undo');
