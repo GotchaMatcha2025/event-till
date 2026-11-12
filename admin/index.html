@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light only">
+<meta name="darkreader-lock">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#F6F1E6">
+<meta name="format-detection" content="telephone=no">
+<title>Admin · OCBC till</title>
+<link rel="stylesheet" href="../assets/till.css?v=20261112a">
+<script src="../assets/rules.js?v=20261112a" defer></script>
+<script src="../assets/core.js?v=20261112a" defer></script>
+<script src="../assets/api.js?v=20261112a" defer></script>
+<script src="../assets/admin.js?v=20261112a" defer></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- OWNER PIN -->
+  <section class="screen" id="s-pin" aria-label="Admin PIN" hidden>
+    <div class="top"><div class="grow"><div class="t1">Admin</div><div class="t2">Owners only · own link</div></div></div>
+    <div class="pin">
+      <h2>Owner PIN</h2>
+      <div class="dots" id="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="err" id="pinerr" role="status" aria-live="polite"></div>
+      <div class="keys" id="keys"></div>
+    </div>
+  </section>
+
+  <!-- ADMIN (owners) -->
+  <section class="screen" id="s-admin" aria-label="Admin" hidden>
+    <div class="top">
+      <div class="grow"><div class="t1">Admin · OCBC till</div><div class="t2" id="adnow"></div></div>
+      <button class="link" id="lock">Lock</button>
+    </div>
+    <div class="scroll" id="adscroll">
+      <div class="tills" id="tills"></div>
+      <div class="daychips" id="daychips" role="group" aria-label="Which days"></div>
+      <div class="count adnote" id="adnote" role="status" aria-live="polite"></div>
+      <div class="acts">
+        <button class="btn paynow" id="pdf">Save PDF</button>
+        <button class="btn second" id="toAdjust">+ Adjust</button>
+      </div>
+      <div class="cap">X reading · what the PDF shows</div>
+      <div class="receipt" id="receipt"></div>
+      <div class="own" id="own"></div>
+      <div class="own" id="mix"></div>
+      <div class="sec" style="margin-top:12px">Adjustments <small>owners only · newest first</small></div>
+      <ul class="list" id="adjlist"></ul>
+      <div class="sec">Orders <small>newest first</small></div>
+      <input class="field" id="find" placeholder="Find order (A-057)" aria-label="Find order number" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <div class="count" id="ordcount"></div>
+      <ul class="list" id="ordlist"></ul>
+      <button class="more" id="more" hidden>Show more</button>
+    </div>
+  </section>
+
+  <div id="sheet"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+<noscript><p style="padding:24px;font:800 16px sans-serif">Turn on JavaScript to use Admin.</p></noscript>
+</body>
+</html>

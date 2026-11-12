@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light only">
+<meta name="darkreader-lock">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#F6F1E6">
+<meta name="format-detection" content="telephone=no">
+<title>OCBC till · Gotcha Matcha</title>
+<link rel="stylesheet" href="assets/till.css?v=20261112a">
+<script src="assets/rules.js?v=20261112a" defer></script>
+<script src="assets/core.js?v=20261112a" defer></script>
+<script src="assets/api.js?v=20261112a" defer></script>
+<script src="assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112a" defer></script>
+<script src="assets/till.js?v=20261112a" defer></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- BOOTH PIN (first open on a phone; again each new day, same letter) -->
+  <section class="screen" id="s-pin" aria-label="Booth PIN" hidden>
+    <div class="top"><div class="grow"><div class="t1">OCBC till</div><div class="t2" id="pint2">Booth phone · first time</div></div></div>
+    <div class="pin">
+      <h2>Booth PIN</h2>
+      <div class="dots" id="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="err" id="pinerr" role="status" aria-live="polite"></div>
+      <div class="keys" id="keys"></div>
+      <button class="link" id="sellnow" hidden>Sell now · send later</button>
+    </div>
+  </section>
+
+  <!-- SELL (staff) -->
+  <section class="screen" id="s-sell" aria-label="Sell" hidden>
+    <div class="top">
+      <div class="grow"><div class="t1" id="t1">OCBC till</div><div class="t2" id="t2"></div><div class="lastline" id="lastline"></div><div class="failline" id="failline" role="alert" hidden></div></div>
+      <button class="pill ok" id="pill" aria-live="polite">● All saved</button>
+    </div>
+    <div class="scroll">
+      <div class="tiles" id="tiles"></div>
+      <div class="sec">Shootout prize <small>1 per order</small></div>
+      <div class="prizes" id="prizes"></div>
+      <div class="sec">Order <button class="link push" id="clear">Clear</button></div>
+      <ul class="lines" id="lines"></ul>
+      <button class="link quiet" id="logout">Log out</button>
+    </div>
+    <div class="paybar">
+      <div class="tot"><span>Total <span class="cups" id="cupsline"></span></span><b id="tot">S$0.00</b></div>
+      <button class="btn paynow" id="toQR">PayNow</button>
+    </div>
+  </section>
+
+  <!-- QR (customer-facing) -->
+  <section class="screen qrscreen" id="s-qr" aria-label="PayNow QR" hidden>
+    <div class="qrhead"><span id="qrorder">Order</span><span>Gotcha Matcha</span></div>
+    <div class="qrbody">
+      <div class="amt" id="qramt">S$0.00</div>
+      <div class="pnlabel">PayNow</div>
+      <div class="qr" id="qr" role="img" aria-label="PayNow QR code"></div>
+      <div class="to" id="qrto">GOTCHA MATCHA PTE LTD</div>
+      <div class="scanhint">Scan with any bank app · amount fixed</div>
+    </div>
+    <div class="staffzone">
+      <div class="check">Their screen: <b>Gotcha Matcha</b> · <b id="chkamt">S$0.00</b> · <b>successful</b> · <b>just now</b></div>
+      <div class="row">
+        <button class="btn second" id="qrBack">Back</button>
+        <button class="btn hold" id="qrPaid" aria-label="Hold for 1 second: paid"><span class="fill"></span><span>Hold: Paid ✓</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PAID -->
+  <section class="screen" id="s-paid" aria-label="Paid" hidden>
+    <div class="done">
+      <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <div class="n" id="pdno">paid</div>
+      <div class="m tab" id="pdm">S$0.00 · PayNow</div>
+      <div class="cupcard" id="pdcups">No cup cards</div>
+      <div class="row">
+        <button class="btn second" id="undo">Undo</button>
+        <button class="btn paynow" id="next">Next order</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="sheet"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+<noscript><p style="padding:24px;font:800 16px sans-serif">Turn on JavaScript to use the till.</p></noscript>
+</body>
+</html>
