@@ -3,21 +3,21 @@
    The till server (another host) and anything else: never touched, straight to the network.
    Every deploy: a new VERSION here + the same ?v= on both pages, then `node test/shell-hash.mjs --write` (SHELL_HASH below); the tests
    fail when a shell file changed without a new VERSION, so a phone never keeps an old file under a new page. Plain ES5. */
-var VERSION = '20261112c';
-var SHELL_HASH = { vh: '5fe069a31f4f', sha: 'e2a82db94583dce67103cf3697d27c4f89af1cd7e723e848e2077599bf06f31f' };
+var VERSION = '20261112e';
+var SHELL_HASH = { vh: '81ead375f5dc', sha: 'a7a6e8e96cdeddb40a76b14bf4059245da0b6054caf328b3fd5b70e75b92fc28' };
 var CACHE = 'gm-till-' + VERSION;
 var SHELL = [
   './',
   './index.html',
   './admin/',
   './admin/index.html',
-  './assets/till.css?v=20261112c',
-  './assets/rules.js?v=20261112c',
-  './assets/core.js?v=20261112c',
-  './assets/api.js?v=20261112c',
-  './assets/till.js?v=20261112c',
-  './assets/admin.js?v=20261112c',
-  './assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112c',
+  './assets/till.css?v=20261112e',
+  './assets/rules.js?v=20261112e',
+  './assets/core.js?v=20261112e',
+  './assets/api.js?v=20261112e',
+  './assets/till.js?v=20261112e',
+  './assets/admin.js?v=20261112e',
+  './assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112e',
   './assets/fonts/nunito-latin.woff2',
   './assets/fonts/plexmono-500-latin.woff2',
   './assets/fonts/plexmono-600-latin.woff2'

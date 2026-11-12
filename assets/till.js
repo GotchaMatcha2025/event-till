@@ -69,9 +69,11 @@
   function beat() {
     if (S.screen === 'tab' || S.screen === 'stop') return;   // stepped aside: only "Use this one" takes the till again
     var st = C.tabState(owner(), TAB, S.gen, Date.now());
-    if (st === 'free') claim(C.nextGen(owner())); else if (st === 'mine' || st === 'stale') claim(); else toTab();   // a free till: a higher generation
+    if (st === 'free') take(); else if (st === 'mine' || st === 'stale') claim(); else toTab();
   }
-  $('takeTab').onclick = function () { claim(C.nextGen(owner())); S.screen = null; reload(); boot(); };
+  // taking the till (a tap on "Use this one", or a till left silent > 10 s): a higher generation, then everything from storage
+  function take() { claim(C.nextGen(owner())); S.screen = null; reload(); boot(); }
+  $('takeTab').onclick = take;
 
   // ---------- screens ----------
   var SCREENS = ['pin', 'sell', 'qr', 'paid', 'tab', 'stop'];
@@ -404,7 +406,8 @@
     if (S.screen === 'tab') return;   // on the "another tab" screen: only "Use this one" takes the till
     var st = C.tabState(owner(), TAB, S.gen, Date.now());
     if (st === 'other') { toTab(); return; }
-    claim(st === 'free' ? C.nextGen(owner()) : 0);
+    if (st === 'free') { take(); maybeUpdate(); return; }   // another tab had it and went silent: its state is the truth
+    claim();
     if (S.screen === 'sell') renderSell();
     flush(); hello(); maybeUpdate();
   });

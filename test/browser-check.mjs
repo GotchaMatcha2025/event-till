@@ -294,6 +294,18 @@ try {
   ok([s1, s2, s3].every((c) => allCodes.includes(c)) && new Set(allCodes).size === allCodes.length, 'the server has all three, no number twice');
   await t2.close(); await b.front();
 
+  // a till another tab took and then left silent (> 10 s): taken by itself, with the stored state (as "Use this one")
+  const fakeOwner = (gen, q) => b.js(`(function(){ var ns='gm-till/local-${P1}/'; localStorage.setItem(ns+'tab', JSON.stringify({id:'gone-tab', at: Date.now() - 20000, gen: ${gen}}));
+    localStorage.setItem(ns+'order', JSON.stringify({q:${q}, prize:null})); return 1; })()`);
+  const genNow = async () => (await b.js(`JSON.parse(localStorage.getItem('gm-till/local-${P1}/tab'))`)).gen;
+  let g0 = await genNow();
+  await fakeOwner(g0 + 1, '{sml:2}'); await sleep(3600);   // the 3-s heartbeat finds it free
+  ok(await b.js(T('tot')) === 'S$15.80' && await genNow() === g0 + 2, 'a silent till, heartbeat: taken with a higher generation and the stored order (S$15.80)');
+  g0 = await genNow();
+  await fakeOwner(g0 + 1, '{mpm:1}'); await b.js(`document.dispatchEvent(new Event('visibilitychange')); 1`); await sleep(400);   // back to the tab
+  ok(await b.js(T('tot')) === 'S$7.90' && await genNow() === g0 + 2, 'a silent till, back to the tab: the stored order (S$7.90)');
+  await b.js(click('#clear'));
+
   // storage that won't keep: a stop screen, no selling
   const t3 = await b.tab(till, "Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); };");
   const stopTxt = await t3.js(T('s-stop'));
@@ -491,8 +503,9 @@ try {
       document.getElementById('qr').innerHTML = q.createSvgTag({cellSize:4, margin:2, scalable:true});
       var app=document.getElementById('app').getBoundingClientRect(), hold=document.getElementById('qrPaid').getBoundingClientRect(), qr=document.getElementById('qr').getBoundingClientRect(),
           z=document.querySelector('#s-qr .staffzone').getBoundingClientRect(), head=document.querySelector('#s-qr .qrhead').getBoundingClientRect(), amt=document.getElementById('qramt').getBoundingClientRect();
-      return {hold: hold.bottom <= app.bottom + 0.5, qr: qr.bottom <= z.top + 0.5 && amt.top >= head.bottom - 0.5, size: Math.round(qr.width), square: Math.abs(qr.width - qr.height) < 1, stripe: !!document.querySelector('.stripe')}; })()`);
-    ok(r.hold && r.qr && r.square && r.stripe === (api === 'staging'), w + '×' + h + (api === 'staging' ? ' + stripe' : '') + ': Hold: Paid and the whole QR on screen (QR ' + r.size + ' px)');
+      var to=document.getElementById('qrto').getBoundingClientRect();
+      return {hold: hold.bottom <= app.bottom + 0.5, qr: qr.bottom <= z.top + 0.5 && to.bottom <= z.top + 0.5 && amt.top >= head.bottom - 0.5, size: Math.round(document.querySelector('#qr svg').getBoundingClientRect().width), square: Math.abs(qr.width - qr.height) < 1, stripe: !!document.querySelector('.stripe')}; })()`);
+    ok(r.hold && r.qr && r.square && r.size >= 180 && r.stripe === (api === 'staging'), w + '×' + h + (api === 'staging' ? ' + stripe' : '') + ': Hold: Paid on screen, the QR code itself at least 180 px for a bank camera (' + r.size + ' px)');
     if (w === 320) await b.shot('22-qr-320x460-' + api);
   }
   await b.size(375, 812); await b.go(fileT + '?api=live', 600);   // the phone back on live
