@@ -38,8 +38,8 @@
     // pct: % off the whole order (oat milk and a 3 for $16 included), rounded to the nearest cent, with 3+ drinks.
     // set: one "3 for $16" set at that price.
     prizes: [
-      { id: 'fy',   label: 'Free Yuzu sparkling',       kind: 'free', item: 'sy', paid: 2, miss: 'Free Yuzu: add a Yuzu sparkling + 2 drinks' },
-      { id: 'fs',   label: 'Free Strawberry sparkling', kind: 'free', item: 'ss', paid: 2, miss: 'Free Strawberry: add a Strawberry sparkling + 2 drinks' },
+      { id: 'fy',   label: 'Free Yuzu sparkling',       kind: 'free', item: 'sy', paid: 2, miss: 'Free Yuzu: needs 3 drinks incl. a Yuzu sparkling' },
+      { id: 'fs',   label: 'Free Strawberry sparkling', kind: 'free', item: 'ss', paid: 2, miss: 'Free Strawberry: needs 3 drinks incl. a Strawberry sparkling' },
       { id: 'p10',  label: '10% off',                   kind: 'pct',  pct: 10,    min: 3,  miss: '10% off: needs 3 drinks' },
       { id: 'b149', label: '3 for $14.90',              kind: 'set',  price: 1490,         miss: '3 for $14.90: add a 3 for $16' }
     ],

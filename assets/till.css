@@ -91,6 +91,7 @@ button.pill::after,.link::after,.tile .minus::after{content:"";position:absolute
 .chip{min-height:44px;border-radius:12px;border:1.5px dashed var(--clay);background:transparent;color:var(--clay-ink);font-weight:800;font-size:14px;padding:6px 8px;line-height:1.2}
 .chip[aria-pressed="true"]{background:var(--clay);border-style:solid;color:#fff}
 .chip.off{opacity:.45}
+.chip.lost{opacity:1;border:2px solid var(--bad);color:var(--bad)}   /* came off when the order changed: seen before PayNow */
 
 /* order lines */
 .lines{list-style:none;margin:0;padding:0;background:var(--card);border-radius:14px;border:1px solid var(--line)}

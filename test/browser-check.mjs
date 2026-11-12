@@ -106,6 +106,20 @@ try {
   ok(!(await off('fy')) && await off('fs') && !(await off('p10')) && await off('b149'), '2 Matcha Latte + Yuzu sparkling: Free Yuzu and 10% off fit; Free Strawberry and 3 for $14.90 grey');
   ok(await prize('fy') === 'S$14.80', '2 Matcha Latte + Yuzu sparkling with Free Yuzu sparkling = S$14.80');
   ok(!/cup/i.test(await b.js('document.body.innerText')), 'no cup cards anywhere on the page');
+  // an order change that makes the chosen prize stop fitting: it comes off with a toast, its chip flagged red, so staff see it before PayNow
+  const lost = (id) => b.js(`(function(){ var c = document.querySelector('[data-prize="${id}"]'); return c.classList.contains('lost') && c.getAttribute('aria-pressed') === 'false'; })()`);
+  const missFy = await b.js(`TillRules.prize('fy').miss`);
+  await b.js(click('[data-minus="ml"]'));   // 1 Matcha Latte + Yuzu sparkling: 2 drinks
+  ok(await b.js(T('toast')) === 'Prize came off: ' + missFy && await b.js(T('tot')) === 'S$12.40', 'one drink less: "Prize came off: ' + missFy + '", total S$12.40');
+  ok(await lost('fy'), 'and its chip is flagged red, not chosen');
+  await b.shot('02a-prize-came-off');
+  await b.js(click('[data-add="ml"]'));     // fits again
+  ok(!(await b.js(`document.querySelector('[data-prize="fy"]').classList.contains('lost')`)) && await b.js(T('tot')) === 'S$19.80', 'fits again: the flag goes, the prize waits for a tap (S$19.80)');
+  ok(await prize('fy') === 'S$14.80', 'tapped again: S$14.80');
+  await b.js(click('[data-minus="sy"]')); await b.js(click('[data-add="t3s"]'));   // no Yuzu sparkling any more
+  ok(await lost('fy'), 'no Yuzu sparkling: flagged again');
+  ok(await prize('b149') === 'S$29.70' && !(await b.js(`document.querySelector('[data-prize="fy"]').classList.contains('lost')`)), 'another prize chosen (3 for $14.90, S$29.70): the flag goes');
+  await b.js(click('#clear')); await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="sy"]'));
   await b.js(click('[data-prize="fs"]'));
   const missFs = await b.js(`TillRules.price({ml:2, sy:1}, 'fs').miss`);
   ok(!!missFs && await b.js(T('toast')) === missFs, 'a grey chip says its rule: "' + missFs + '"');

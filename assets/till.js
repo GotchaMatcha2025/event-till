@@ -23,7 +23,7 @@
     S.auth = get('auth', null);       // {token, letter, date}: the till token is good for that SGT date (the server's) only
     S.letter = get('letter', null);   // kept over a new day, so the phone rejoins as the same till
     S.counter = get('counter', null); // {letter, n}: the last number this phone used
-    S.q = o.q || {}; S.prize = o.prize || null;
+    S.q = o.q || {}; S.prize = o.prize || null; S.lost = o.lost || null;   // lost: a prize the order no longer fits (its chip flagged)
     S.paid = get('paid', null);       // the sale on the Paid screen (Undo until Next order)
     S.last = get('last', null);       // {id, till, n, total}
     S.offset = +get('offset', 0) || 0;   // server − phone clock, used for sale times / QR only when the phone is > 5 min off
@@ -56,7 +56,7 @@
   }
   function tokenOk() { return !!(S.auth && S.auth.token && S.auth.letter === S.letter && S.auth.date === serverDay()); }
   function setAuth(d) { S.auth = { token: d.token, letter: d.letter, date: d.date || serverDay() }; put('auth', S.auth); }
-  function saveOrder() { put('order', { q: S.q, prize: S.prize }); }
+  function saveOrder() { put('order', { q: S.q, prize: S.prize, lost: S.lost || null }); }
 
   // ---------- one tab owns the till ----------
   function owner() { return get('tab', null); }
@@ -107,8 +107,19 @@
   // ---------- the order (prices and prizes from rules.js; no cup cards since 13 Nov: the game is played from the banner QR) ----------
   function cur() {
     var p = R.price(S.q, S.prize);
-    if (!p.ok && S.prize) { S.prize = null; saveOrder(); p = R.price(S.q, null); }   // a prize that no longer fits comes off (as in the mock-up)
+    if (!p.ok && S.prize) { S.lost = S.prize; S.prize = null; saveOrder(); p = R.price(S.q, null); }   // a prize that no longer fits comes off, flagged
     return p.ok ? p : { ok: false, err: p.err, gross: 0, disc: 0, total: 0 };
+  }
+  // after a drink is added or taken off: a chosen prize that no longer fits comes off — said out loud and its chip flagged red, so
+  // staff see it before PayNow (adversarial pass, rev 3.2); the flag goes when the order fits it again (tap it again) or another prize is chosen
+  function checkPrize() {
+    if (S.prize && !R.prizeFits(S.q, S.prize)) {
+      var miss = (R.prize(S.prize) || {}).miss || 'Add a drink first';
+      S.lost = S.prize; S.prize = null;
+      return 'Prize came off: ' + miss;
+    }
+    if (S.lost && R.prizeFits(S.q, S.lost)) S.lost = null;
+    return '';
   }
   function status() {
     S.queue = readQ();
@@ -134,8 +145,9 @@
         '</div>';
     }).join('');
     $('prizes').innerHTML = E.prizes.map(function (p) {
-      var ok = R.prizeFits(S.q, p.id);
-      return '<button class="chip' + (ok ? '' : ' off') + '" data-prize="' + p.id + '" aria-pressed="' + (S.prize === p.id) + '">' + esc(p.label) + '</button>';
+      var ok = R.prizeFits(S.q, p.id), lost = S.lost === p.id;
+      return '<button class="chip' + (ok ? '' : ' off') + (lost ? ' lost' : '') + '" data-prize="' + p.id + '" aria-pressed="' + (S.prize === p.id) + '"' +
+        (lost ? ' aria-label="' + esc(p.label) + ', came off"' : '') + '>' + esc(p.label) + '</button>';
     }).join('');
     var lines = [];
     E.menu.forEach(function (m) { var q = S.q[m.id]; if (q) lines.push('<li><span>' + q + ' × ' + esc(m.full || m.name) + '</span><span class="a">' + money(m.p * q) + '</span></li>'); });
@@ -157,18 +169,19 @@
       var chk = R.price(nq, null);
       if (!chk.ok && chk.err === 'qty') { toast(E.maxQty + ' at most'); return; }
       if (!chk.ok && chk.err === 'too-big') { toast(money(E.maxOrderCents) + ' most per order'); return; }
-      S.q = nq; saveOrder(); renderSell();
+      S.q = nq; var said = checkPrize(); saveOrder(); renderSell(); if (said) toast(said);
     } else if (t.hasAttribute('data-minus')) {
       var m = t.getAttribute('data-minus');
       S.q[m] = (S.q[m] || 0) - 1; if (S.q[m] <= 0) delete S.q[m];
-      saveOrder(); renderSell();
+      var off = checkPrize(); saveOrder(); renderSell(); if (off) toast(off);
     } else if (t.hasAttribute('data-prize')) {
       var p = t.getAttribute('data-prize');
       if (S.prize !== p && !R.prizeFits(S.q, p)) { toast(R.price(S.q, p).miss || 'Add a drink first'); return; }
-      S.prize = S.prize === p ? null : p; saveOrder(); renderSell();
+      S.prize = S.prize === p ? null : p; if (S.prize) S.lost = null;   // a prize chosen: no flag
+      saveOrder(); renderSell();
     } else if (t.hasAttribute('data-k')) pinKey(t.getAttribute('data-k'));
   });
-  $('clear').onclick = function () { if (!act()) return; S.q = {}; S.prize = null; saveOrder(); renderSell(); maybeUpdate(); };
+  $('clear').onclick = function () { if (!act()) return; S.q = {}; S.prize = null; S.lost = null; saveOrder(); renderSell(); maybeUpdate(); };
   $('toQR').onclick = function () { if (!act()) return; if (cur().total <= 0) { toast('Add a drink first'); return; } show('qr'); };
   $('pill').onclick = function () {
     if (!act()) return;
@@ -234,14 +247,14 @@
   $('next').onclick = function () {
     if (!act()) return;
     if (S.paid) { S.last = { id: S.paid.id, till: S.paid.till, n: S.paid.n, total: S.paid.total }; put('last', S.last); }
-    S.paid = null; del('paid'); S.q = {}; S.prize = null; saveOrder();
+    S.paid = null; del('paid'); S.q = {}; S.prize = null; S.lost = null; saveOrder();
     show('sell'); maybeUpdate();
   };
   // Undo (payment failed): kept for the owners as "Undone at till", never a sale; the order comes back to fix or ring again
   $('undo').onclick = function () {
     var p = S.paid; if (!p || !act()) return;
     if (!editQ(function (q) { C.Q.undo(q, { id: p.id, till: p.till, n: p.n }); }).ok) { toast("Couldn't save on this phone. Try again."); return; }
-    S.q = p.q; S.prize = p.prize; saveOrder();
+    S.q = p.q; S.prize = p.prize; S.lost = null; saveOrder();
     S.paid = null; del('paid');
     show('sell'); toast(R.code(p.till, p.n) + ' undone. Order is back.');
     flush();
