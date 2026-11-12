@@ -69,7 +69,7 @@
     return p.ok ? p : { ok: false, err: p.err, gross: 0, disc: 0, total: 0, cups: 0 };
   }
   function status() {
-    var p = C.pill(S.queue, S.offline || navigator.onLine === false, !tokenOk());
+    var p = C.pill(S.queue, S.offline || navigator.onLine === false, !(S.auth && S.auth.token));   // an old token renews itself: only no token needs the PIN
     $('pill').className = 'pill ' + p.cls; $('pill').textContent = p.text;
     var f = C.failLine(S.queue); $('failline').hidden = !f; $('failline').textContent = f;
   }
