@@ -267,3 +267,45 @@ test('pickApi: ?api=http://localhost:PORT only from a file or localhost copy', (
     assert.equal(p.mode, 'live', bad);
   }
 });
+
+// ---------- review fixes (12 Nov): expiry, staging for one day, two tabs, the Last line ----------
+test('nextDay / QR expiry: the day after the sale day (a same-day expiry is not proven with bank apps)', () => {
+  assert.equal(C.nextDay('2026-11-14'), '2026-11-15');
+  assert.equal(C.nextDay('2026-11-30'), '2026-12-01');
+  assert.equal(C.nextDay('2026-12-31'), '2027-01-01');
+  assert.equal(C.ymd(C.nextDay('2026-11-13')), '20261114');
+});
+test('storedApi: ?api=staging is remembered for the SGT day it was set only', () => {
+  assert.equal(C.storedApi(JSON.stringify({ v: 'staging', day: '2026-11-13' }), '2026-11-13'), 'staging');
+  assert.equal(C.storedApi(JSON.stringify({ v: 'staging', day: '2026-11-12' }), '2026-11-13'), null);   // the next day: live again
+  assert.equal(C.storedApi('staging', '2026-11-13'), null);                                          // an old plain value: dropped
+  assert.equal(C.storedApi(null, '2026-11-13'), null);
+  assert.equal(C.storedApi('{bad json', '2026-11-13'), null);
+});
+test('two tabs: every change is read-modify-write on the stored queue, so one tab never drops the other\'s sales', () => {
+  const store = { queue: '[]' };
+  const read = () => JSON.parse(store.queue), write = (q) => { store.queue = JSON.stringify(q); return true; };
+  const tab1 = read();                                                  // tab 1 read the queue earlier (empty)
+  C.Q.edit(read, write, (q) => { C.Q.add(q, sale('t2a', 2)); C.Q.add(q, sale('t2b', 3)); });   // tab 2 queues two sales
+  assert.equal(tab1.length, 0);                                         // tab 1's old copy is stale …
+  C.Q.edit(read, write, (q) => { C.Q.add(q, sale('t1', 4)); });         // … but its change starts from storage
+  C.Q.edit(read, write, (q) => { const j = C.Q.byId(q, 't2a'); C.Q.settle(q, j, C.Q.body(j), { saved: true, undone: false }); });
+  assert.deepEqual(read().map((j) => j.id), ['t2b', 't1']);
+  assert.equal(C.Q.byId(read(), 'gone'), null);                         // settled elsewhere: nothing to do
+  const fail = C.Q.edit(read, () => false, (q) => { C.Q.add(q, sale('x', 9)); });
+  assert.equal(fail.ok, false);                                         // storage refused: the caller says so
+});
+test('tabState: one tab owns the till; a heartbeat older than 10 s is free to take', () => {
+  assert.equal(C.tabState(null, 'me', 1000), 'free');
+  assert.equal(C.tabState({ id: 'me', at: 0 }, 'me', 99999), 'mine');
+  assert.equal(C.tabState({ id: 'other', at: 95000 }, 'me', 100000), 'other');
+  assert.equal(C.tabState({ id: 'other', at: 89000 }, 'me', 100000), 'free');   // frozen or closed
+});
+test('lastWords: ✓ only once the server has it; else waiting / not saved', () => {
+  const last = { id: 's6', till: 'C', n: 6, total: 500 };
+  assert.equal(C.lastWords(last, []), 'Last: C-006 · S$5.00 ✓');
+  assert.equal(C.lastWords(last, [sale('s6', 6, { till: 'C' })]), 'Last: C-006 · S$5.00 · waiting');
+  const q = [sale('s6', 6, { till: 'C' })]; C.Q.fail(q, q[0], { status: 409, error: 'clash' });
+  assert.equal(C.lastWords(last, q), 'Last: C-006 · S$5.00 · not saved');
+  assert.equal(C.lastWords(null, []), '');
+});

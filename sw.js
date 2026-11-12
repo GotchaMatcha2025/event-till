@@ -1,21 +1,23 @@
 /* Gotcha Matcha event till — the offline app shell (service worker): a reload with no signal still opens the till.
    Pages: network first (3.5 s, the stadium's signal), then the saved copy. Our own files (all ?v= tagged): the saved copy first.
    The till server (another host) and anything else: never touched, straight to the network.
-   Every deploy: a new VERSION here + the same ?v= on both pages (test/files.test.mjs checks it), so phones get the new files. Plain ES5. */
-var VERSION = '20261112a';
+   Every deploy: a new VERSION here + the same ?v= on both pages, then `node test/shell-hash.mjs --write` (SHELL_HASH below); the tests
+   fail when a shell file changed without a new VERSION, so a phone never keeps an old file under a new page. Plain ES5. */
+var VERSION = '20261112b';
+var SHELL_HASH = { v: '20261112b', sha: '0b44d5038f68bd7d21070a45144c6156598c583b277a7f93cb5860cb03f9a485' };
 var CACHE = 'gm-till-' + VERSION;
 var SHELL = [
   './',
   './index.html',
   './admin/',
   './admin/index.html',
-  './assets/till.css?v=20261112a',
-  './assets/rules.js?v=20261112a',
-  './assets/core.js?v=20261112a',
-  './assets/api.js?v=20261112a',
-  './assets/till.js?v=20261112a',
-  './assets/admin.js?v=20261112a',
-  './assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112a',
+  './assets/till.css?v=20261112b',
+  './assets/rules.js?v=20261112b',
+  './assets/core.js?v=20261112b',
+  './assets/api.js?v=20261112b',
+  './assets/till.js?v=20261112b',
+  './assets/admin.js?v=20261112b',
+  './assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112b',
   './assets/fonts/nunito-latin.woff2',
   './assets/fonts/plexmono-500-latin.woff2',
   './assets/fonts/plexmono-600-latin.woff2'
@@ -50,10 +52,12 @@ function page(req, url) {
     var done = false;
     function give(r) { if (!done && r) { done = true; resolve(r); } }
     var slow = setTimeout(function () { fromCache(keys).then(give); }, 3500);   // weak signal: open the saved copy, keep waiting otherwise
-    fetch(req).then(function (r) {
+    // past the browser's HTTP cache (a stale page could load new files); a redirect (/admin → /admin/) goes back to the browser as is
+    fetch(url.href, { cache: 'no-store', redirect: 'manual', credentials: 'same-origin' }).then(function (r) {
       clearTimeout(slow);
-      if (r && r.ok && r.type === 'basic') { var copy = r.clone(); caches.open(CACHE).then(function (c) { return c.put(keys[0], copy); }); }
-      give(r);
+      if (r && r.ok && r.type === 'basic') { var copy = r.clone(); caches.open(CACHE).then(function (c) { return c.put(keys[0], copy); }); give(r); return; }
+      if (r && r.type === 'opaqueredirect') { give(r); return; }
+      fromCache(keys).then(function (hit) { give(hit || r); });   // a 404 / 5xx from the host: the saved copy if there is one
     }, function () {
       clearTimeout(slow);
       fromCache(keys).then(function (r) { give(r || Response.error()); });

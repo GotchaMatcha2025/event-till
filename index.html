@@ -9,12 +9,12 @@
 <meta name="theme-color" content="#F6F1E6">
 <meta name="format-detection" content="telephone=no">
 <title>OCBC till · Gotcha Matcha</title>
-<link rel="stylesheet" href="assets/till.css?v=20261112a">
-<script src="assets/rules.js?v=20261112a" defer></script>
-<script src="assets/core.js?v=20261112a" defer></script>
-<script src="assets/api.js?v=20261112a" defer></script>
-<script src="assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112a" defer></script>
-<script src="assets/till.js?v=20261112a" defer></script>
+<link rel="stylesheet" href="assets/till.css?v=20261112b">
+<script src="assets/rules.js?v=20261112b" defer></script>
+<script src="assets/core.js?v=20261112b" defer></script>
+<script src="assets/api.js?v=20261112b" defer></script>
+<script src="assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112b" defer></script>
+<script src="assets/till.js?v=20261112b" defer></script>
 </head>
 <body>
 <div id="app">
@@ -82,6 +82,18 @@
         <button class="btn paynow" id="next">Next order</button>
       </div>
     </div>
+  </section>
+
+  <!-- ANOTHER TAB has the till (one tab at a time, so no sale is lost and no number used twice) -->
+  <section class="screen" id="s-tab" aria-label="Till open in another tab" hidden>
+    <div class="top"><div class="grow"><div class="t1">OCBC till</div><div class="t2">One tab at a time</div></div></div>
+    <div class="pin"><h2>Till open in another tab</h2><button class="btn paynow wide" id="takeTab">Use this one</button></div>
+  </section>
+
+  <!-- STOP: this browser won't keep sales (private mode, blocked storage) -->
+  <section class="screen" id="s-stop" aria-label="Can't keep sales" hidden>
+    <div class="top"><div class="grow"><div class="t1">OCBC till</div><div class="t2">Booth phone</div></div></div>
+    <div class="pin"><h2>This browser can't keep sales.</h2><div class="hint big">Open in normal Safari or Chrome.</div></div>
   </section>
 
   <div id="sheet"></div>

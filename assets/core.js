@@ -71,6 +71,9 @@
   function find(queue, id, kind) { for (var i = 0; i < queue.length; i++) if (queue[i].id === id && (!kind || queue[i].kind === kind)) return queue[i]; return null; }
   function drop(queue, job) { var i = queue.indexOf(job); if (i >= 0) queue.splice(i, 1); }
   var Q = {
+    byId: function (queue, id) { return find(queue, id) || null; },
+    // storage is the truth (two tabs, one phone): read the stored queue, change it, write it back; ok = storage took it
+    edit: function (read, write, fn) { var q = read() || [], r = fn(q); return { ok: write(q) !== false, q: q, r: r }; },
     add: function (queue, job) { job.tries = job.tries || 0; job.nextAt = job.nextAt || 0; job.err = job.err || null; job.inflight = false; queue.push(job); return job; },
     waiting: function (queue) { var n = 0; for (var i = 0; i < queue.length; i++) if (!queue[i].err) n++; return n; },
     failed: function (queue) { return queue.filter(function (j) { return !!j.err; }); },
@@ -147,6 +150,24 @@
     return Math.abs(off) > 300000 ? Math.round(off) : 0;
   }
 
+  // the Last line: ✓ only once the server has the sale
+  function lastWords(last, queue) {
+    if (!last || !last.till) return '';
+    var j = find(queue || [], last.id), base = 'Last: ' + R.code(last.till, last.n) + ' · ' + R.money(last.total);
+    return !j ? base + ' ✓' : j.err ? base + ' · not saved' : base + ' · waiting';
+  }
+  // one tab owns the till (a heartbeat in storage); a heartbeat older than 10 s = that tab was closed or frozen: free to take
+  function tabState(owner, me, nowMs) {
+    if (!owner || !owner.id) return 'free';
+    if (owner.id === me) return 'mine';
+    return nowMs - (+owner.at || 0) < 10000 ? 'other' : 'free';
+  }
+  // ?api=staging is remembered for the SGT day it was set ({v, day}); the next day the phone is back on live
+  function storedApi(raw, today) {
+    var o = null; try { o = JSON.parse(raw); } catch (e) { return null; }
+    return o && typeof o === 'object' && o.day === today && typeof o.v === 'string' ? o.v : null;
+  }
+
   // ---------- time words (Singapore, whatever the phone's zone) ----------
   var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function hm(ms) { var m = R.sgtMin(ms), h = Math.floor(m / 60); return ((h % 12) || 12) + ':' + R.pad(m % 60, 2) + (h >= 12 ? 'pm' : 'am'); }
@@ -158,10 +179,13 @@
   }
   function when(ms, today) { var d = R.sgtDate(ms); return d === today ? hm(ms) : dayWords(d).short + ' ' + hm(ms); }
   function ymd(date) { return String(date).replace(/-/g, ''); }
+  // "2026-11-30" → "2026-12-01" (the QR's expiry: the day after the sale day)
+  function nextDay(date) { var p = String(date).split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + 1)); return d.getUTCFullYear() + '-' + R.pad(d.getUTCMonth() + 1, 2) + '-' + R.pad(d.getUTCDate(), 2); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
   root.TillCore = {
     API: API, pickApi: pickApi, nextN: nextN, uid: uid, parseCents: parseCents, parseCode: parseCode, findOrders: findOrders,
-    Q: Q, pill: pill, failLine: failLine, clockOffset: clockOffset, hm: hm, dayWords: dayWords, when: when, ymd: ymd, esc: esc
+    Q: Q, pill: pill, failLine: failLine, clockOffset: clockOffset, hm: hm, dayWords: dayWords, when: when, ymd: ymd, nextDay: nextDay, esc: esc,
+    lastWords: lastWords, tabState: tabState, storedApi: storedApi
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

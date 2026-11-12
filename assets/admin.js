@@ -13,7 +13,9 @@
   var TOK = A.key('owner');
   function ssGet() { try { return JSON.parse(window.sessionStorage.getItem(TOK)); } catch (e) { return null; } }
   function ssSet(v) { try { if (v) window.sessionStorage.setItem(TOK, JSON.stringify(v)); else window.sessionStorage.removeItem(TOK); } catch (e) { /* private mode */ } }
-  var S = { auth: ssGet(), st: null, all: null, filter: 'all', shown: 10, find: '', pin: '', busy: false, loading: 0, screen: null };
+  var S = { auth: ssGet(), st: null, stFor: null, all: null, filter: 'all', shown: 10, find: '', pin: '', busy: false, loading: 0, screen: null, loadErr: null };
+  // the state on hand is for the day chip on screen (a slow or failed load never shows another day's figures, or prints them)
+  function ready() { return !!S.st && S.stFor === S.filter; }
 
   // ---------- small helpers ----------
   function signed(c) { return (c > 0 ? '+' : '') + money(c); }
@@ -33,7 +35,13 @@
     var a = (o.lines || []).map(function (l) { return l.q + ' ' + itemName(l.id); });
     return a.join(', ') + (o.prize ? ' · ' + (R.prize(o.prize) ? R.prize(o.prize).label : o.prize) : '');
   }
-  function toast(msg) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(function () { t.hidden = true; }, 2400); }
+  // a hint sits under the top bar (never over a button)
+  function toast(msg) {
+    var t = $('toast'), top = document.querySelector('#s-' + S.screen + ' .top'), app = $('app').getBoundingClientRect();
+    t.textContent = msg; t.hidden = false;
+    t.style.top = Math.max(8, Math.round(top ? top.getBoundingClientRect().bottom - app.top + 8 : 12)) + 'px';
+    clearTimeout(toast.t); toast.t = setTimeout(function () { t.hidden = true; }, 2400);
+  }
   function untoast() { clearTimeout(toast.t); $('toast').hidden = true; }   // a hint never follows to the next screen or sheet (it covered Hold: Paid)
   function note(text, bad) { var n = $('adnote'); n.textContent = text || ''; n.className = bad ? 'err adnote' : 'count adnote'; }
   function closeSheet() { $('sheet').innerHTML = ''; S.sheet = null; }
@@ -68,7 +76,7 @@
     if (S.busy || S.screen !== 'pin') return;
     if (k === '⌫') S.pin = S.pin.slice(0, -1); else if (S.pin.length < 6) S.pin += k;
     $('pinerr').textContent = ''; renderPin();
-    if (S.pin.length === 6) setTimeout(login, 150);
+    if (S.pin.length === 6) { S.busy = true; setTimeout(login, 150); renderPin(); }   // busy at once: a double tap sends one login
   }
   document.addEventListener('keydown', function (e) {
     if (S.screen !== 'pin') return;
@@ -97,7 +105,7 @@
     });
   }
   function lock(msg) {
-    S.auth = null; ssSet(null); S.st = null; S.all = null;
+    S.auth = null; ssSet(null); S.st = null; S.stFor = null; S.all = null;
     show('pin'); if (msg) $('pinerr').textContent = msg;
   }
   $('lock').onclick = function () { lock(''); };
@@ -106,7 +114,6 @@
   function load(keep, then, again) {
     if (!S.auth) return;
     var f = S.filter, mine = ++S.loading;
-    if (!S.st) note('Loading…');
     A.call('GET', '/admin/state?day=' + encodeURIComponent(f), null, S.auth.token, 20000).then(function (res) {
       if (mine !== S.loading) return;   // a later tap wins
       if (!res.ok) {
@@ -114,9 +121,11 @@
           if (again) { lock('Log in again.'); return; }
           renewAuth(function (ok) { if (ok) load(keep, then, true); else lock('Log in again.'); }); return;
         }
-        note((S.st ? 'Not up to date. ' : '') + A.words(res), true); return;
+        if (ready()) note('Not up to date. ' + A.words(res), true);
+        else { S.loadErr = { f: f, text: A.words(res) }; render(); }
+        return;
       }
-      S.st = res.data; if (f === 'all') S.all = res.data;
+      S.st = res.data; S.stFor = f; S.loadErr = null; if (f === 'all') S.all = res.data;
       note(''); render();
       if (then) then();
     });
@@ -130,7 +139,7 @@
     var t = String(code || '').trim().toUpperCase().replace(new RegExp('^' + E.refPrefix + '(?=[A-Z]\\s*-?\\s*\\d)'), '');   // GMA057 (the bank's ref) = A-057
     var want = C.parseCode(t.replace(/^([A-Z])\s*-?\s*0*(\d+)$/, function (m, a, b) { return R.code(a, +b); }));
     if (!want) return null;
-    var srcs = [S.st, S.all], i, j, os;
+    var srcs = [ready() ? S.st : null, S.all], i, j, os;
     for (i = 0; i < srcs.length; i++) {
       os = srcs[i] && srcs[i].orders || [];
       for (j = 0; j < os.length; j++) if (os[j].code === R.code(want.till, want.n)) return os[j];
@@ -139,8 +148,8 @@
   }
   // a day's X reading total as the server last said it (null = not known here: the server still checks)
   function dayTotal(date) {
-    if (S.st && S.filter === date) return S.st.x.total;
-    var src = S.filter === 'all' ? S.st : S.all, i, b = src && src.x && src.x.byDay || [];
+    if (ready() && S.filter === date) return S.st.x.total;
+    var src = ready() && S.filter === 'all' ? S.st : S.all, i, b = src && src.x && src.x.byDay || [];
     for (i = 0; i < b.length; i++) if (b[i].date === date) return b[i].total;
     return null;
   }
@@ -152,9 +161,16 @@
     $('daychips').innerHTML = [{ date: 'all', short: 'Whole event' }].concat(days()).map(function (d) {
       return '<button data-day="' + esc(d.date) + '" aria-pressed="' + (S.filter === d.date) + '">' + esc(d.short) + '</button>';
     }).join('');
-    if (!st) { $('tills').innerHTML = ''; $('receipt').innerHTML = ''; $('own').hidden = $('mix').hidden = true; $('adjlist').innerHTML = $('ordlist').innerHTML = ''; $('ordcount').textContent = ''; $('more').hidden = true; return; }
+    $('tills').innerHTML = ''; if (st) renderTills(st);
+    $('pdf').disabled = !ready();
+    if (!ready()) {   // "Loading Sat 14…" (or why not), never the last day's figures
+      var lbl = S.filter === 'all' ? 'whole event' : C.dayWords(S.filter).short, err = S.loadErr && S.loadErr.f === S.filter ? S.loadErr.text : '';
+      $('receipt').innerHTML = '<div class="rc">' + esc(err ? lbl.charAt(0).toUpperCase() + lbl.slice(1) + ' not loaded. ' + err : 'Loading ' + lbl + '…') + '</div>';
+      $('own').hidden = $('mix').hidden = true; $('adjlist').innerHTML = $('ordlist').innerHTML = ''; $('ordcount').textContent = ''; $('more').hidden = true;
+      return;
+    }
     $('own').hidden = $('mix').hidden = false;
-    renderTills(st); renderReceipt(st); renderOwn(st); renderLists();
+    renderReceipt(st); renderOwn(st); renderLists();
   }
   function renderTills(st) {
     $('tills').innerHTML = (st.tills || []).map(function (t) {
@@ -255,12 +271,16 @@
     $('more').hidden = shown.length >= os.length;
     $('more').textContent = 'Show more (' + shown.length + ' of ' + os.length + ')';
   }
-  $('more').onclick = function () { S.shown += 20; renderLists(); };
-  $('find').oninput = function () { S.find = this.value; S.shown = 10; if (S.st) renderLists(); };
+  $('more').onclick = function () { if (!ready()) return; S.shown += 20; renderLists(); };
+  $('find').oninput = function () { S.find = this.value; S.shown = 10; if (ready()) renderLists(); };
   document.addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('[data-day],[data-void],[data-restore],[data-adjord],[data-adjundo],[data-k]') : null;
     if (!t) return;
-    if (t.hasAttribute('data-day')) { S.filter = t.getAttribute('data-day'); S.shown = 10; render(); load(); }
+    if (t.hasAttribute('data-day')) {
+      S.filter = t.getAttribute('data-day'); S.shown = 10; S.loadErr = null;
+      if (S.filter === 'all' && S.all) { S.st = S.all; S.stFor = 'all'; }   // the whole event on hand: shown, then refreshed
+      render(); load();
+    }
     else if (t.hasAttribute('data-void')) openVoid(t.getAttribute('data-void'));
     else if (t.hasAttribute('data-restore')) openRestore(t.getAttribute('data-restore'));
     else if (t.hasAttribute('data-adjord')) openAdjust(t.getAttribute('data-adjord'));
@@ -270,7 +290,7 @@
 
   // ---------- Save PDF = the browser's print, A4, the X reading receipt only (till.css @media print) ----------
   $('pdf').onclick = function () {
-    if (!S.st) { toast('Wait for the X reading'); return; }
+    if (!ready()) { toast('Wait for the X reading'); return; }
     var keep = document.title;
     document.title = 'X reading ' + (S.filter === 'all' ? 'OCBC whole event' : 'OCBC ' + C.dayWords(S.filter).label) + (A.mode !== 'live' ? ' TEST' : '');
     window.addEventListener('afterprint', function back() { document.title = keep; window.removeEventListener('afterprint', back); });
@@ -367,7 +387,7 @@
       else if (!err && F.dir === 'off' && F.day && dayT !== null && cents > dayT) err = 'At most ' + money(dayT) + ' off on ' + C.dayWords(F.day).label + '.';
       var sg = F.dir === 'off' ? -cents : cents;
       var ok = !err && F.day && cents > 0 && F.why.trim();
-      var t = today(), byDay = (((S.filter === 'all' ? S.st : S.all || S.st) || {}).x || {}).byDay || [];
+      var t = today(), byDay = (((ready() && S.filter === 'all' ? S.st : S.all) || (ready() ? S.st : null) || {}).x || {}).byDay || [];
       var ds = lo && !err ? [dayOf(lo.day)] : days().filter(function (d) {   // days so far (all three after Sun 15 Nov), and any day that has sales
         if (d.date <= t) return true;
         for (var i = 0; i < byDay.length; i++) if (byDay[i].date === d.date && (byDay[i].orders || byDay[i].adjusted)) return true;
@@ -397,11 +417,11 @@
     }
     draw();
   }
-  $('toAdjust').onclick = function () { if (!S.st) { toast('Wait for the X reading'); return; } openAdjust(null); };
+  $('toAdjust').onclick = function () { if (!ready()) { toast('Wait for the X reading'); return; } openAdjust(null); };
 
   // UNDO an adjustment: kept in the list as "Undone · who when" (a linked undo row on the server)
   function openAdjUndo(id) {
-    var a = null; (S.st.fixes || []).forEach(function (x) { if (String(x.id) === String(id)) a = x; });
+    var a = null; if (!ready()) return; (S.st.fixes || []).forEach(function (x) { if (String(x.id) === String(id)) a = x; });
     if (!a) return;
     var ss = S.sheet = { req: null, busy: false, unsure: false, err: '' }, dt = dayTotal(a.day);
     var block = a.amt > 0 && dt !== null && dt - a.amt < 0 ? C.dayWords(a.day).label + ' would go below S$0.' : '';
@@ -424,6 +444,7 @@
 
   // ---------- start ----------
   A.stripe();
-  A.offlineShell('../sw.js');
+  var shell = A.offlineShell('../sw.js');
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && shell) shell.check(); });
   show(S.auth ? 'admin' : 'pin');
 })();

@@ -1,12 +1,27 @@
 /* Gotcha Matcha event till — which server, one fetch with a timeout, and the error words (gotcha-hq API contract, 12 Nov 2026).
-   Live by default; ?api=staging (remembered on this phone, red "TEST · staging" stripe on every screen); ?api=live switches back.
-   ?api=http://localhost:PORT only from a copy opened on this computer (file: or localhost): the test stub. Plain ES5; puts TillApi on window. */
+   Live by default; ?api=staging is remembered on this phone for that SGT day only, with a red "TEST · staging · tap for live" stripe on
+   every screen; ?api=live switches back. ?api=http://localhost:PORT only from a copy opened on this computer (file: or localhost): the
+   test stub. Plain ES5; puts TillApi on window. */
 (function (root) {
   'use strict';
-  var C = root.TillCore, KEY = 'gm-till-api';
-  function ls(op, k, v) { try { return op === 'get' ? root.localStorage.getItem(k) : op === 'set' ? root.localStorage.setItem(k, v) : root.localStorage.removeItem(k); } catch (e) { return null; } }
-  var P = C.pickApi(root.location.search, root.location.protocol, root.location.hostname, ls('get', KEY));
-  if (P.save === null) ls('del', KEY); else if (P.save) ls('set', KEY, P.save);
+  var C = root.TillCore, R = root.TillRules, KEY = 'gm-till-api';
+  // → the value for 'get'; true / false for 'set' and 'del' (a full or blocked storage says false, never throws)
+  function ls(op, k, v) {
+    try {
+      if (op === 'get') return root.localStorage.getItem(k);
+      if (op === 'set') root.localStorage.setItem(k, v); else root.localStorage.removeItem(k);
+      return true;
+    } catch (e) { return op === 'get' ? null : false; }
+  }
+  // can this browser keep sales? write, read back, remove (private modes and blocked storage fail here)
+  function storageOk() {
+    var k = 'gm-till-probe', v = String(Math.random());
+    return ls('set', k, v) === true && ls('get', k) === v && ls('del', k) === true;
+  }
+  var raw = ls('get', KEY), day = R.sgtDate(Date.now());
+  var P = C.pickApi(root.location.search, root.location.protocol, root.location.hostname, C.storedApi(raw, day));
+  if (P.save === null || (raw && P.save === undefined && C.storedApi(raw, day) === null)) ls('del', KEY);   // ?api=live, or yesterday's choice
+  else if (P.save) ls('set', KEY, JSON.stringify({ v: P.save, day: day }));
 
   // the words people see (≤ 6 where possible); a server message wins for the price and cap refusals
   var WORDS = {
@@ -49,23 +64,35 @@
     });
   }
 
-  // one key space per server: a staging test never mixes with live sales on the same phone
+  // one key space per server: a staging (or stub) token or sale never reaches live on the same phone
   function key(k) { return 'gm-till/' + P.ns + '/' + k; }
-  // the red stripe on every screen when this is not the live server
+  // the red stripe on every screen when this is not the live server; a tap asks, then switches this phone to live
   function stripe() {
     if (P.mode === 'live') return;
-    var s = document.createElement('div');
-    s.className = 'stripe'; s.setAttribute('role', 'note');
-    s.textContent = P.mode === 'staging' ? 'TEST · staging' : 'TEST · local stub';
+    var s = document.createElement('button');
+    s.className = 'stripe'; s.type = 'button';
+    s.textContent = 'TEST · ' + (P.mode === 'staging' ? 'staging' : 'local stub') + ' · tap for live';
+    s.onclick = function () {
+      var box = document.getElementById('sheet'); if (!box) return;
+      box.innerHTML = '<div class="sheetwrap" id="apiSw"><div class="sheet" role="dialog" aria-modal="true"><h3>Switch to live?</h3>' +
+        '<div class="preview">This phone leaves the test server.<br><span style="color:var(--muted)">Test sales stay there.</span></div>' +
+        '<div class="row"><button class="btn second" id="apiKeep">Keep test</button><button class="btn paynow" id="apiLive">Switch to live</button></div></div></div>';
+      document.getElementById('apiKeep').onclick = function () { box.innerHTML = ''; };
+      document.getElementById('apiSw').onclick = function (e) { if (e.target.id === 'apiSw') box.innerHTML = ''; };
+      document.getElementById('apiLive').onclick = function () { ls('del', KEY); root.location.replace(root.location.pathname + '?api=live'); };
+    };
     document.body.insertBefore(s, document.body.firstChild);
     document.body.className += ' test';
   }
-  // the app shell for a reload with no signal (https or this computer only; file: has no service worker)
-  function offlineShell(swPath) {
-    if (!('serviceWorker' in root.navigator)) return;
-    if (root.location.protocol !== 'https:' && root.location.hostname !== 'localhost' && root.location.hostname !== '127.0.0.1') return;
-    root.navigator.serviceWorker.register(swPath).then(null, function () { /* no shell: the page still works online */ });
+  // the app shell for a reload with no signal (https or this computer only; file: has no service worker). onNew: a newer shell took over
+  function offlineShell(swPath, onNew) {
+    if (!('serviceWorker' in root.navigator)) return null;
+    if (root.location.protocol !== 'https:' && root.location.hostname !== 'localhost' && root.location.hostname !== '127.0.0.1') return null;
+    var sw = root.navigator.serviceWorker, had = !!sw.controller, reg = null;
+    sw.register(swPath).then(function (r) { reg = r; }, function () { /* no shell: the page still works online */ });
+    if (had && onNew) sw.addEventListener('controllerchange', onNew);   // not on the first install
+    return { check: function () { if (reg) reg.update().then(null, function () { /* offline */ }); } };
   }
 
-  root.TillApi = { base: P.base, mode: P.mode, ns: P.ns, call: call, words: words, key: key, stripe: stripe, offlineShell: offlineShell, ls: ls };
+  root.TillApi = { base: P.base, mode: P.mode, ns: P.ns, call: call, words: words, key: key, stripe: stripe, offlineShell: offlineShell, ls: ls, storageOk: storageOk };
 })(window);

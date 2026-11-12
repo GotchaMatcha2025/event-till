@@ -32,6 +32,14 @@ const SHELL = JSON.parse(((/var SHELL = (\[[\s\S]*?\]);/.exec(SW) || [])[1] || '
 test('sw.js has a version and a shell list', () => {
   assert.ok(VERSION, 'VERSION constant'); assert.ok(Array.isArray(SHELL) && SHELL.length > 5, 'SHELL list');
 });
+test('a shell file changed → a new VERSION (SHELL_HASH in sw.js; renew with node test/shell-hash.mjs --write)', async () => {
+  const { readSw, shellHash } = await import('./shell-hash.mjs');
+  const { version, stored } = readSw();
+  assert.ok(stored, 'sw.js has SHELL_HASH');
+  assert.equal(stored.v, VERSION, 'SHELL_HASH was made for another VERSION: run node test/shell-hash.mjs --write');
+  assert.equal(stored.sha, shellHash(), 'a shell file changed: raise VERSION in sw.js + ?v= on both pages, then node test/shell-hash.mjs --write');
+  assert.equal(version, VERSION);
+});
 test('every file sw.js caches exists', () => {
   for (const u of SHELL) {
     const f = u.replace(/^\.\//, '').replace(/\?.*$/, '').replace(/(^|\/)$/, '$1index.html');
