@@ -3,7 +3,8 @@
 //   node test/stub-server.mjs [--port 8788] [--now 2026-11-14T19:41:00+08:00] [--empty]
 // Then open index.html or admin/index.html (from disk, or http://localhost:PORT/…) with ?api=http://localhost:PORT
 // Made-up test PINs, this stub only (never real ones): booth 482913 · Kai 736204 · Vin 591847.
-// Controls: POST /__stub/down {down} (no signal), /__stub/expire (every token is yesterday's), /__stub/busy {on} (PINs locked: 429), /__stub/dump.
+// Controls: POST /__stub/down {down} (no signal), /__stub/expire (every token is yesterday's), /__stub/busy {on} (PINs locked: 429),
+// /__stub/broken {on} (every API call 503), /__stub/page500 {on} (the pages answer 500), /__stub/dump (+ join / renew counts).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +28,7 @@ const sales = [];          // {id, till, n, day, at, receivedAt, lines, prize, g
 const fixes = [];          // {id, req, kind, till, n, day, amt, why, by, madeAt, undoes}
 const reqs = new Map();    // req → [status, body]
 const tokens = new Map();  // token → {kind, who, date}
-let down = false, busy = false, wrong = { booth: 0, owner: 0 };
+let down = false, busy = false, broken = false, page500 = false, wrong = { booth: 0, owner: 0 }, count = { joins: 0, renews: 0, logins: 0 };
 
 const sgt = (date, hhmm) => Date.parse(date + 'T' + hhmm + ':00+08:00');
 function addSale(till, n, at, q, prize, extra = {}) {
@@ -134,6 +135,7 @@ const dayTotal = (d) => figures(d).total;
 function route(method, url, body, req) {
   const p = url.pathname;
   if (method === 'POST' && p === '/till/join') {
+    if (body.renew) count.renews++; else count.joins++;
     const old = body.renew ? tokens.get(body.renew) : null;   // a new day: yesterday's token for the same letter, no PIN
     if (body.renew && !(old && old.kind === 'till' && old.who === body.letter)) return no(401, 'login', 'Log in again.');
     if (!old && (busy || wrong.booth >= 8)) return no(429, 'busy', 'Too many wrong PINs. Wait 12 minutes.');
@@ -167,6 +169,7 @@ function route(method, url, body, req) {
     }
   }
   if (method === 'POST' && p === '/admin/login') {
+    if (!body.renew) count.logins++;
     const old = body.renew ? tokens.get(body.renew) : null;
     if (body.renew && !(old && old.kind === 'owner')) return no(401, 'login', 'Log in again.');
     if (!old && (busy || wrong.owner >= 5)) return no(429, 'busy', 'Too many wrong PINs. Wait 12 minutes.');
@@ -226,18 +229,22 @@ const server = http.createServer((req, res) => {
     let raw = ''; req.on('data', (c) => raw += c); req.on('end', () => {
       if (url.pathname === '/__stub/down') { try { down = !!JSON.parse(raw || '{}').down; } catch (e) { down = true; } }
       if (url.pathname === '/__stub/busy') { try { busy = !!JSON.parse(raw || '{}').on; } catch (e) { busy = true; } }
+      if (url.pathname === '/__stub/broken') { try { broken = !!JSON.parse(raw || '{}').on; } catch (e) { broken = true; } }
+      if (url.pathname === '/__stub/page500') { try { page500 = !!JSON.parse(raw || '{}').on; } catch (e) { page500 = true; } }
       if (url.pathname === '/__stub/expire') for (const t of tokens.values()) t.date = '2000-01-01';
-      res.writeHead(200, { 'Content-Type': 'application/json', ...cors }); res.end(JSON.stringify({ ok: true, down, sales: sales.length, fixes, last: sales.slice(-5) }));
+      res.writeHead(200, { 'Content-Type': 'application/json', ...cors }); res.end(JSON.stringify({ ok: true, down, sales: sales.length, fixes, last: sales.slice(-5), all: sales.map((x) => ({ code: code(x), id: x.id, undone: x.undone })), count }));
     }); return;
   }
   const api = /^\/(till|admin)\/[a-z]/.test(url.pathname) && !/\.html$/.test(url.pathname);   // /admin/ and /admin/index.html are the page
   if (api && down) { req.socket.destroy(); return; }   // "no signal"
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+  if (api && broken) { res.writeHead(503, { 'Content-Type': 'application/json', ...cors }); res.end(JSON.stringify({ ok: false, error: 'try-again', message: 'Something went wrong. Try again.', now: now() })); return; }
   if (!api) {   // the pages themselves, for the offline-shell check over http://localhost
     let f = path.normalize(path.join(ROOT, decodeURIComponent(url.pathname)));
     if (!f.startsWith(ROOT) || /(^|\/)\./.test(path.relative(ROOT, f))) { res.writeHead(404); res.end(); return; }
     if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, 'index.html');
     if (!fs.existsSync(f)) { res.writeHead(404); res.end('not found'); return; }
+    if (page500 && /\.html$/.test(f)) { res.writeHead(500, { 'Content-Type': 'text/html' }); res.end('<h1>500 host error</h1>'); return; }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); fs.createReadStream(f).pipe(res); return;
   }
   let raw = ''; req.on('data', (c) => { raw += c; if (raw.length > 16384) req.socket.destroy(); });

@@ -8,7 +8,10 @@ rev 3.1 (gotcha-hq `systems/guides/EVENT-TILL-MOCKUP.html`, owner's yes 12 Nov 2
 - `assets/core.js`: the pure parts (queue, next number, find, amounts, which server), tested in node. `assets/api.js`: server + fetch + words.
 - `assets/till.js` + `index.html`: sell → PayNow QR → hold Paid → Paid (Undo until Next order); sales queue on the phone first.
 - `assets/admin.js` + `admin/index.html`: everything from `GET /admin/state`; Void / Restore / Adjust / Undo; Save PDF = print, X reading only.
-- `sw.js`: the offline shell. **Every deploy: a new `VERSION` in sw.js and the same `?v=` on both pages** (the tests check they match).
+- `sw.js`: the offline shell. **Every deploy that changes a shell file: a new `VERSION` in sw.js, the same `?v=` on both pages, then
+  `node test/shell-hash.mjs --write`** (the tests fail on a changed file without a new VERSION). An open till updates itself when idle.
+- The phone's storage is the truth: one tab owns the till at a time ("Till open in another tab · Use this one"); a browser that can't keep
+  storage gets a stop screen. `?api=staging` is remembered for that SGT day only; the red stripe says "tap for live".
 - Vendored, unmodified: `assets/vendor/qrcode-generator-1.4.4`, `assets/fonts` (OFL); `SHA256SUMS` in each, checked by the tests.
 
 Server: live by default; `?api=staging` (remembered on that phone, red "TEST · staging" stripe); `?api=live` switches back.

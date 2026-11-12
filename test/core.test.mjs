@@ -296,10 +296,17 @@ test('two tabs: every change is read-modify-write on the stored queue, so one ta
   assert.equal(fail.ok, false);                                         // storage refused: the caller says so
 });
 test('tabState: one tab owns the till; a heartbeat older than 10 s is free to take', () => {
-  assert.equal(C.tabState(null, 'me', 1000), 'free');
-  assert.equal(C.tabState({ id: 'me', at: 0 }, 'me', 99999), 'mine');
-  assert.equal(C.tabState({ id: 'other', at: 95000 }, 'me', 100000), 'other');
-  assert.equal(C.tabState({ id: 'other', at: 89000 }, 'me', 100000), 'free');   // frozen or closed
+  assert.equal(C.tabState(null, 'me', 0, 1000), 'free');
+  assert.equal(C.tabState({ id: 'me', at: 0, gen: 3 }, 'me', 3, 99999), 'mine');
+  assert.equal(C.tabState({ id: 'other', at: 95000, gen: 4 }, 'me', 3, 100000), 'other');   // it took the till after me
+  assert.equal(C.tabState({ id: 'other', at: 89000, gen: 4 }, 'me', 3, 100000), 'free');    // frozen or closed
+});
+test('tabState: a late write from a tab that already lost the till (lower generation) never takes it back', () => {
+  // storage reaches other tabs a few ms late: the old owner's last heartbeat can land after the new owner's claim
+  assert.equal(C.tabState({ id: 'old', at: 99990, gen: 3 }, 'new', 4, 100000), 'stale');   // the new owner writes its claim again
+  assert.equal(C.tabState({ id: 'new', at: 99990, gen: 4 }, 'old', 3, 100000), 'other');   // the old owner steps aside
+  assert.equal(C.nextGen({ id: 'x', at: 1, gen: 7 }), 8);
+  assert.equal(C.nextGen(null), 1);
 });
 test('lastWords: ✓ only once the server has it; else waiting / not saved', () => {
   const last = { id: 's6', till: 'C', n: 6, total: 500 };

@@ -9,13 +9,14 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = C.esc, money = R.money;
   var BOOTH = E.booth.replace(/\s*\(.*\)\s*$/, '');   // "Kallang Wave Mall"
-  var TAB = C.uid();                                    // this tab, for the one-tab guard
+  // this tab, for the one-tab guard: kept per tab (sessionStorage), so a reload is still the same tab, never "another tab"
+  var TAB = (function () { var k = 'gm-till-tab', v = null; try { v = window.sessionStorage.getItem(k); if (!v) { v = C.uid(); window.sessionStorage.setItem(k, v); } } catch (e) { v = C.uid(); } return v; })();
 
   // ---------- this phone's memory (one key space per server); put → false when the browser won't keep it ----------
   function get(k, d) { var v = A.ls('get', A.key(k)); if (v == null) return d; try { return JSON.parse(v); } catch (e) { return d; } }
   function put(k, v) { return A.ls('set', A.key(k), JSON.stringify(v)) === true; }
   function del(k) { A.ls('del', A.key(k)); }
-  var S = { offline: false, pin: '', busy: false, pinNet: false, qr: null, screen: null, sending: null, lastN: 0 };
+  var S = { offline: false, pin: '', busy: false, pinNet: false, qr: null, screen: null, sending: null, lastN: 0, gen: 0 };
   // storage is the truth: read everything again (start, another tab's change, taking the till over)
   function reload() {
     var o = get('order', null) || {};
@@ -59,16 +60,18 @@
 
   // ---------- one tab owns the till ----------
   function owner() { return get('tab', null); }
-  function mine() { return C.tabState(owner(), TAB, Date.now()) === 'mine'; }
-  function claim() { return put('tab', { id: TAB, at: Date.now() }); }
+  function claim(gen) { if (gen) S.gen = gen; return put('tab', { id: TAB, at: Date.now(), gen: S.gen }); }
+  function state() { return S.screen === 'tab' || S.screen === 'stop' ? 'other' : C.tabState(owner(), TAB, S.gen, Date.now()); }
+  // mine: this tab owns the till ('stale' = a late write from a tab that already lost: claim again, it is still ours)
+  function mine() { var st = state(); if (st === 'stale') claim(); return st === 'mine' || st === 'stale'; }
   function act() { if (mine()) return true; toTab(); return false; }   // every tap that changes something checks first
   function toTab() { if (S.screen === 'tab' || S.screen === 'stop') return; clearTimeout(wakeT); show('tab'); }
   function beat() {
-    if (S.screen === 'stop') return;
-    var st = C.tabState(owner(), TAB, Date.now());
-    if (st === 'mine') claim(); else if (st === 'other') toTab();
+    if (S.screen === 'tab' || S.screen === 'stop') return;   // stepped aside: only "Use this one" takes the till again
+    var st = C.tabState(owner(), TAB, S.gen, Date.now());
+    if (st === 'free') claim(C.nextGen(owner())); else if (st === 'mine' || st === 'stale') claim(); else toTab();   // a free till: a higher generation
   }
-  $('takeTab').onclick = function () { claim(); reload(); boot(); };
+  $('takeTab').onclick = function () { claim(C.nextGen(owner())); S.screen = null; reload(); boot(); };
 
   // ---------- screens ----------
   var SCREENS = ['pin', 'sell', 'qr', 'paid', 'tab', 'stop'];
@@ -319,8 +322,11 @@
     if (!e.key || e.key.indexOf(A.key('')) !== 0 || S.screen === 'stop') return;
     if (e.key === A.key('tab')) { if (!mine()) toTab(); return; }
     if (S.screen === 'tab') return;
-    reload();
-    if (S.screen === 'sell') renderSell(); else status();
+    // another tab's late write (an answer it was still waiting for): take the queue, the login and the clocks; this tab's own
+    // order, Paid and Last are only ever written by the tab that owns the till, so they are never reloaded under it
+    S.auth = get('auth', null); S.letter = get('letter', S.letter); S.counter = get('counter', S.counter);
+    S.offset = +get('offset', 0) || 0; S.skew = +get('skew', 0) || 0;
+    status();
   });
 
   // ---------- booth PIN: first open → a till letter; refused renewal → the same letter again ----------
@@ -395,10 +401,10 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden || S.screen === 'stop') return;
     if (shell) shell.check();
-    var st = C.tabState(owner(), TAB, Date.now());
-    if (st === 'other') { toTab(); return; }
     if (S.screen === 'tab') return;   // on the "another tab" screen: only "Use this one" takes the till
-    claim();
+    var st = C.tabState(owner(), TAB, S.gen, Date.now());
+    if (st === 'other') { toTab(); return; }
+    claim(st === 'free' ? C.nextGen(owner()) : 0);
     if (S.screen === 'sell') renderSell();
     flush(); hello(); maybeUpdate();
   });
@@ -414,7 +420,9 @@
   if (!A.storageOk()) { show('stop'); return; }   // private mode / blocked storage: sales could be lost, so no selling here
   shell = A.offlineShell('sw.js', function () { S.updateReady = true; maybeUpdate(); });
   reload();
-  if (C.tabState(owner(), TAB, Date.now()) === 'other') show('tab'); else { claim(); boot(); }
+  var o0 = owner(), st0 = C.tabState(o0, TAB, 0, Date.now());
+  if (st0 === 'other') show('tab');
+  else { claim(st0 === 'mine' && o0.gen ? o0.gen : C.nextGen(o0)); boot(); }   // a reload is still the same tab (and generation)
   setInterval(beat, 3000);
   setInterval(hello, 60000);
 })();

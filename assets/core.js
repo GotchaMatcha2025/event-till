@@ -156,12 +156,15 @@
     var j = find(queue || [], last.id), base = 'Last: ' + R.code(last.till, last.n) + ' · ' + R.money(last.total);
     return !j ? base + ' ✓' : j.err ? base + ' · not saved' : base + ' · waiting';
   }
-  // one tab owns the till (a heartbeat in storage); a heartbeat older than 10 s = that tab was closed or frozen: free to take
-  function tabState(owner, me, nowMs) {
+  // one tab owns the till: {id, at, gen} in storage. A heartbeat older than 10 s = closed or frozen: free to take. Each takeover raises
+  // gen, so a late write from a tab that already lost (storage reaches other tabs a few ms late) is 'stale': the owner claims again.
+  function tabState(owner, me, myGen, nowMs) {
     if (!owner || !owner.id) return 'free';
     if (owner.id === me) return 'mine';
+    if ((+owner.gen || 0) < (+myGen || 0)) return 'stale';
     return nowMs - (+owner.at || 0) < 10000 ? 'other' : 'free';
   }
+  function nextGen(owner) { return (owner && +owner.gen || 0) + 1; }
   // ?api=staging is remembered for the SGT day it was set ({v, day}); the next day the phone is back on live
   function storedApi(raw, today) {
     var o = null; try { o = JSON.parse(raw); } catch (e) { return null; }
@@ -186,6 +189,6 @@
   root.TillCore = {
     API: API, pickApi: pickApi, nextN: nextN, uid: uid, parseCents: parseCents, parseCode: parseCode, findOrders: findOrders,
     Q: Q, pill: pill, failLine: failLine, clockOffset: clockOffset, hm: hm, dayWords: dayWords, when: when, ymd: ymd, nextDay: nextDay, esc: esc,
-    lastWords: lastWords, tabState: tabState, storedApi: storedApi
+    lastWords: lastWords, tabState: tabState, nextGen: nextGen, storedApi: storedApi
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
