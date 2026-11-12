@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
-// the lead's shared copy (the server repo holds the other one); SHARED_RULES= points elsewhere when the scratchpad is gone
-const SHARED = process.env.SHARED_RULES || path.join(ROOT, '..', 'shared', 'rules.js');
-test('assets/rules.js is byte-identical to the shared rules.js', { skip: !fs.existsSync(SHARED) && 'no shared copy at ' + SHARED }, () => {
-  assert.ok(Buffer.compare(fs.readFileSync(path.join(ROOT, 'assets/rules.js')), fs.readFileSync(SHARED)) === 0, 'assets/rules.js differs from ' + SHARED);
+// the shared copy and the server's copy, wherever they sit next to this repo (SHARED_RULES= adds another); none found = skipped, said so
+const COPIES = [process.env.SHARED_RULES, path.join(ROOT, '..', 'shared', 'rules.js'), path.join(ROOT, '..', 'event-till-server', 'src', 'rules.js')]
+  .filter((f) => f && fs.existsSync(f));
+test('assets/rules.js is byte-identical to the shared / server rules.js', { skip: !COPIES.length && 'no other copy next to this repo' }, () => {
+  for (const f of COPIES) assert.ok(Buffer.compare(fs.readFileSync(path.join(ROOT, 'assets/rules.js')), fs.readFileSync(f)) === 0, 'assets/rules.js differs from ' + f);
 });
 
 function sums(file) {
