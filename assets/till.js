@@ -104,11 +104,11 @@
     $('sw').addEventListener('click', function (e) { if (e.target.id === 'sw') closeSheet(); });
   }
 
-  // ---------- the order (prices, prizes and cup cards from rules.js) ----------
+  // ---------- the order (prices and prizes from rules.js; no cup cards since 13 Nov: the game is played from the banner QR) ----------
   function cur() {
     var p = R.price(S.q, S.prize);
     if (!p.ok && S.prize) { S.prize = null; saveOrder(); p = R.price(S.q, null); }   // a prize that no longer fits comes off (as in the mock-up)
-    return p.ok ? p : { ok: false, err: p.err, gross: 0, disc: 0, total: 0, cups: 0 };
+    return p.ok ? p : { ok: false, err: p.err, gross: 0, disc: 0, total: 0 };
   }
   function status() {
     S.queue = readQ();
@@ -142,7 +142,6 @@
     if (S.prize) lines.push('<li class="pz"><span>Prize · ' + esc(R.prize(S.prize).label) + '</span><span class="a">' + money(-c.disc) + '</span></li>');
     $('lines').innerHTML = lines.length ? lines.join('') : '<li class="empty">Tap a drink to start</li>';
     $('tot').textContent = money(c.total);
-    $('cupsline').textContent = c.gross ? '· ' + c.cups + ' cup card' + (c.cups === 1 ? '' : 's') : '';
     var off = c.total <= 0;
     $('toQR').setAttribute('aria-disabled', String(off));
     $('toQR').textContent = off ? 'PayNow' : 'PayNow ' + money(c.total);
@@ -222,7 +221,7 @@
     var job = { kind: 'sale', id: C.uid(), till: S.letter, n: n, at: now(), q: q, prize: S.prize || null, undone: false, total: c.total };
     if (!editQ(function (qq) { C.Q.add(qq, job); }).ok) { toast("Couldn't save on this phone. Not paid yet — try again."); return; }
     S.counter = { letter: S.letter, n: Math.max(n, myN(get('counter', null)), myN(S.counter)) }; put('counter', S.counter);
-    S.paid = { id: job.id, till: S.letter, n: n, total: c.total, cups: c.cups, q: q, prize: S.prize || null }; put('paid', S.paid);
+    S.paid = { id: job.id, till: S.letter, n: n, total: c.total, q: q, prize: S.prize || null }; put('paid', S.paid);
     show('paid');
     if (S.qr && n !== S.qr.n) toast('Saved as ' + R.code(S.letter, n) + ' (QR said ' + R.code(S.letter, S.qr.n) + ')');
     flush();
@@ -231,7 +230,6 @@
     var p = S.paid; if (!p) { show('sell'); return; }
     $('pdno').textContent = R.code(p.till, p.n) + ' paid';
     $('pdm').textContent = money(p.total) + ' · PayNow';
-    $('pdcups').textContent = p.cups ? 'Give ' + p.cups + ' cup card' + (p.cups === 1 ? '' : 's') : 'No cup cards';
   }
   $('next').onclick = function () {
     if (!act()) return;

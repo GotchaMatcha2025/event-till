@@ -9,12 +9,12 @@
 <meta name="theme-color" content="#F6F1E6">
 <meta name="format-detection" content="telephone=no">
 <title>OCBC till · Gotcha Matcha</title>
-<link rel="stylesheet" href="assets/till.css?v=20261112e">
-<script src="assets/rules.js?v=20261112e" defer></script>
-<script src="assets/core.js?v=20261112e" defer></script>
-<script src="assets/api.js?v=20261112e" defer></script>
-<script src="assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112e" defer></script>
-<script src="assets/till.js?v=20261112e" defer></script>
+<link rel="stylesheet" href="assets/till.css?v=20261112f">
+<script src="assets/rules.js?v=20261112f" defer></script>
+<script src="assets/core.js?v=20261112f" defer></script>
+<script src="assets/api.js?v=20261112f" defer></script>
+<script src="assets/vendor/qrcode-generator-1.4.4/qrcode.js?v=20261112f" defer></script>
+<script src="assets/till.js?v=20261112f" defer></script>
 </head>
 <body>
 <div id="app">
@@ -46,7 +46,7 @@
       <button class="link quiet" id="logout">Log out</button>
     </div>
     <div class="paybar">
-      <div class="tot"><span>Total <span class="cups" id="cupsline"></span></span><b id="tot">S$0.00</b></div>
+      <div class="tot"><span>Total</span><b id="tot">S$0.00</b></div>
       <button class="btn paynow" id="toQR">PayNow</button>
     </div>
   </section>
@@ -76,7 +76,6 @@
       <div class="tick"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
       <div class="n" id="pdno">paid</div>
       <div class="m tab" id="pdm">S$0.00 · PayNow</div>
-      <div class="cupcard" id="pdcups">No cup cards</div>
       <div class="row">
         <button class="btn second" id="undo">Undo</button>
         <button class="btn paynow" id="next">Next order</button>

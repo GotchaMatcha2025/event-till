@@ -97,20 +97,30 @@ try {
   ok(await b.js(T('t1')) === 'OCBC till · C', 'a new phone gets the next free letter (C)');
   ok(/^Sat 14 Nov · Kallang Wave Mall$/.test(await b.js(T('t2'))), 'day from the server clock: "Sat 14 Nov · Kallang Wave Mall"');
 
-  // ---------- Sell: lines, prizes, total ----------
+  // ---------- Sell: lines, the 13 Nov Shootout prizes (owner, DECISIONS 13 Nov; mock-up rev 3.2), total — no cup cards ----------
+  const off = (id) => b.js(`document.querySelector('[data-prize="${id}"]').classList.contains('off')`);
+  const prize = async (id) => { await b.js(click('[data-prize="' + id + '"]')); return b.js(T('tot')); };
+  ok(await b.js(`[].map.call(document.querySelectorAll('.chip'), function(c){return c.textContent;}).join('|')`) === 'Free Yuzu sparkling|Free Strawberry sparkling|10% off|3 for $14.90', 'the 4 prize chips: Free Yuzu sparkling, Free Strawberry sparkling, 10% off, 3 for $14.90');
+  ok(await off('fy') && await off('fs') && await off('p10') && await off('b149'), 'an empty order: all 4 grey');
   await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="sy"]'));
-  await b.js(click('[data-prize="yuzu"]'));
-  ok(await b.js(T('tot')) === 'S$14.80', '2 Matcha Latte + Yuzu Sparkling − free yuzu = S$14.80');
-  ok(await b.js(T('cupsline')) === '· 2 cup cards', 'cup cards: 3 drinks − 1 free = 2');
-  await b.js(click('[data-prize="yuzu"]'));   // off again
-  await b.js(click('[data-minus="ml"]')); await b.js(click('[data-minus="ml"]'));
-  ok(await b.js(`document.querySelector('[data-prize="matcha"]').classList.contains('off')`), 'Free matcha greyed with no matcha');
-  await b.js(click('[data-prize="matcha"]'));
-  ok(await b.js(T('toast')) === 'Free matcha: add a matcha + 1 more drink', 'a greyed chip says its rule');
+  ok(!(await off('fy')) && await off('fs') && !(await off('p10')) && await off('b149'), '2 Matcha Latte + Yuzu sparkling: Free Yuzu and 10% off fit; Free Strawberry and 3 for $14.90 grey');
+  ok(await prize('fy') === 'S$14.80', '2 Matcha Latte + Yuzu sparkling with Free Yuzu sparkling = S$14.80');
+  ok(!/cup/i.test(await b.js('document.body.innerText')), 'no cup cards anywhere on the page');
+  await b.js(click('[data-prize="fs"]'));
+  const missFs = await b.js(`TillRules.price({ml:2, sy:1}, 'fs').miss`);
+  ok(!!missFs && await b.js(T('toast')) === missFs, 'a grey chip says its rule: "' + missFs + '"');
   ok(await b.js(overlap(['toQR', 'tot'])) === '', 'the hint sits under the top bar, not over PayNow or the total');
-  await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="ml"]')); await b.js(click('[data-prize="off1"]'));
-  ok(await b.js(T('tot')) === 'S$18.80', '2 ML + Yuzu − $1 = S$18.80');
-  ok(await b.js(`document.querySelector('[data-add="ml"]').getAttribute('aria-label')`) === 'Add Matcha Latte, S$7.40, 2 in order', 'tile label: "Add Matcha Latte, S$7.40, 2 in order"');
+  await b.js(click('#clear')); await b.js(click('[data-add="t3y"]'));
+  ok(await prize('b149') === 'S$14.90', '3 for $16 · Yuzu with 3 for $14.90 = S$14.90');
+  await b.js(click('#clear')); await b.js(click('[data-add="ml"]')); await b.js(click('[data-add="sml"]')); await b.js(click('[data-add="sy"]'));
+  ok(await prize('p10') === 'S$18.27', 'Matcha Latte + Strawberry Matcha Latte + Yuzu sparkling with 10% off = S$18.27');
+  for (const w of [320, 430]) {   // the longer chip words: two lines read well, every chip 44 px or more, nothing cut
+    await b.size(w, 780); await sleep(150);
+    ok(await b.js(`[].every.call(document.querySelectorAll('.chip'), function(c){ return c.getBoundingClientRect().height >= 44 && c.scrollWidth <= c.clientWidth + 1 && c.scrollHeight <= c.clientHeight + 1; })`), w + ' px: every prize chip at least 44 px tall, its words whole');
+    await b.js(`document.getElementById('prizes').scrollIntoView(); 1`); await b.shot('02b-chips-' + w);
+  }
+  await b.size(375, 812); await sleep(150);
+  ok(await b.js(`document.querySelector('[data-add="ml"]').getAttribute('aria-label')`) === 'Add Matcha Latte, S$7.40, 1 in order', 'tile label: "Add Matcha Latte, S$7.40, 1 in order"');
   for (const sel of ['#pill', '[data-minus="ml"]', '#clear']) { const hw = await b.js(hit(sel)); ok(big(hw), sel + ' tap area at least 44 px (' + hw + ')'); }
   await b.shot('02-sell');
 
@@ -120,8 +130,8 @@ try {
   ok(await b.js(`document.getElementById('toast').hidden`), 'no Sell hint left over the QR screen (it covered Hold: Paid)');
   ok(await b.js(T('qrorder')) === 'Order C-001 · ref GMC001', 'order number + ref on the QR screen');
   const pay = await b.js(`document.getElementById('qr').getAttribute('data-payload')`);
-  ok(pay === await b.js(`TillRules.paynow(1880, 'GMC001', '20261115')`), 'payload = TillRules.paynow(total, ref, the day after the sale day)');
-  ok(pay.includes('540518.80') && pay.includes('040820261115') && pay.includes('62100106GMC001') && pay.includes('0210202435893D'), 'payload: amount 18.80, expiry 20261115 (sale day + 1), ref GMC001, UEN');
+  ok(pay === await b.js(`TillRules.paynow(1827, 'GMC001', '20261115')`), 'payload = TillRules.paynow(total, ref, the day after the sale day)');
+  ok(pay.includes('540518.27') && pay.includes('040820261115') && pay.includes('62100106GMC001') && pay.includes('0210202435893D'), 'payload: amount 18.27, expiry 20261115 (sale day + 1), ref GMC001, UEN');
   const scan = await b.js(`(async function(){ if (!window.BarcodeDetector) return 'no BarcodeDetector';
     var svg = document.querySelector('#qr svg'), img = new Image(), s = new XMLSerializer().serializeToString(svg);
     img.src = 'data:image/svg+xml;base64,' + btoa(s); await img.decode();
@@ -139,14 +149,14 @@ try {
   await b.js(`(function(){var e=document.getElementById('qrPaid'); e.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); return 1;})()`);
   await sleep(1300);
   ok(await b.js(visible('s-paid')), 'hold 1 s → Paid');
-  ok(await b.js(T('pdno')) === 'C-001 paid' && await b.js(T('pdm')) === 'S$18.80 · PayNow' && await b.js(T('pdcups')) === 'Give 3 cup cards', 'Paid: C-001 · S$18.80 · Give 3 cup cards');
+  ok(await b.js(T('pdno')) === 'C-001 paid' && await b.js(T('pdm')) === 'S$18.27 · PayNow' && !/cup/i.test(await b.js(T('s-paid'))), 'Paid: C-001 paid · S$18.27 · PayNow, no cup card line');
   await sleep(800);
   let d = await ctl(P1, 'dump');
-  ok(d.last.some((s) => s.till === 'C' && s.n === 1 && s.total === 1880 && !s.undone), 'the server has C-001 at S$18.80 (re-priced)');
+  ok(d.last.some((s) => s.till === 'C' && s.n === 1 && s.total === 1827 && !s.undone), 'the server has C-001 at S$18.27 (re-priced)');
   await b.shot('04-paid');
   await b.js(click('#undo')); await sleep(800);
   ok(await b.js(visible('s-sell')) && await b.js(T('toast')) === 'C-001 undone. Order is back.', 'Undo → Sell, "C-001 undone. Order is back."');
-  ok(await b.js(T('tot')) === 'S$18.80', 'the order is back');
+  ok(await b.js(T('tot')) === 'S$18.27', 'the order is back');
   ok(await b.js(overlap(['toQR', 'tot'])) === '', 'the undo hint is not over PayNow or the total');
   d = await ctl(P1, 'dump');
   ok(d.last.some((s) => s.till === 'C' && s.n === 1 && s.undone), 'already sent → POST /till/undo: the server marks C-001 undone');
@@ -157,7 +167,7 @@ try {
   ok(await b.js(T('qrorder')) === 'Order C-002 · ref GMC002', 'after an undo the next number is C-002');
   await b.js(`document.getElementById('qrPaid').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))`); await sleep(1300);
   await b.js(click('#next')); await sleep(600);
-  ok(await b.js(T('lastline')) === 'Last: C-002 · S$18.80 ✓', '"Last: C-002 · S$18.80 ✓"');
+  ok(await b.js(T('lastline')) === 'Last: C-002 · S$18.27 ✓', '"Last: C-002 · S$18.27 ✓"');
   ok(await b.js(T('pill')) === '● All saved', 'pill: ● All saved');
 
   // ---------- offline queue ----------

@@ -50,7 +50,7 @@ function seed() {
       for (let j = 0; j < k; j++) { const id = pick(); q[id] = (q[id] || 0) + 1; }
       if ((q.ml || q.sml || q.mpm) && rnd() < .12) q.oat = 1;
       let pz = null;
-      if (rnd() < .16) { const r = rnd(), want = r < .5 ? 'off1' : r < .6 ? 'off2' : r < .85 ? 'yuzu' : 'matcha'; pz = R.prizeFits(q, want) ? want : R.prizeFits(q, 'off1') ? 'off1' : null; }
+      if (rnd() < .3) { const r = rnd(), want = r < .25 ? 'fy' : r < .5 ? 'fs' : r < .75 ? 'p10' : 'b149'; pz = R.prizeFits(q, want) ? want : null; }   // the 13 Nov prizes
       const till = letters[Math.floor(rnd() * letters.length)];
       addSale(till, ++count[till], at, q, pz);
     }
